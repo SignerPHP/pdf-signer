@@ -44,7 +44,7 @@ final class SignedBufferBuilderTest extends TestCase
             },
             new class implements Pkcs7SignerInterface
             {
-                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider): string
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
                 {
                     return 'AB';
                 }
@@ -78,7 +78,7 @@ final class SignedBufferBuilderTest extends TestCase
             },
             new class implements Pkcs7SignerInterface
             {
-                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider): string
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
                 {
                     return 'ABCD';
                 }
@@ -136,7 +136,7 @@ final class SignedBufferBuilderTest extends TestCase
             },
             new class implements Pkcs7SignerInterface
             {
-                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider): string
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
                 {
                     return 'ABCD';
                 }

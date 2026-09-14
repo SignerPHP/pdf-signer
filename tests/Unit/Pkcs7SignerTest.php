@@ -6,33 +6,38 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfCore\Buffer;
-use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
-use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
-use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
+use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProvider;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Pkcs7Signer;
 use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
+use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
 
 final class Pkcs7SignerTest extends TestCase
 {
-    public function test_sign_hex_encodes_and_pads_provider_bytes(): void
+    public function test_sign_throws_when_certificate_pem_is_missing(): void
     {
-        $provider = new class implements SignatureProviderInterface
-        {
-            public ?SigningPayload $payload = null;
+        $provider = new LocalPrivateKeySignatureProvider('not-a-key');
 
-            public function sign(SigningPayload $payload): SignatureValue
-            {
-                $this->payload = $payload;
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('Signing certificate PEM is required to assemble CMS.');
 
-                return new SignatureValue('AB');
-            }
-        };
+        (new Pkcs7Signer)->sign(new Buffer('payload'), $provider, '');
+    }
 
-        $result = (new Pkcs7Signer)->sign(new Buffer('payload-to-sign'), $provider);
+    public function test_sign_assembles_padded_hex_cms_from_provider_signature(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $payload = "%PDF-1.4\n1 0 obj<<>>endobj\nstartxref\n0\n%%EOF\n";
+        $provider = new LocalPrivateKeySignatureProvider($bundle['pkey']);
 
-        self::assertSame('payload-to-sign', $provider->payload?->data);
-        self::assertSame('4142', substr($result, 0, 4));
+        $result = (new Pkcs7Signer)->sign(new Buffer($payload), $provider, $bundle['cert']);
+        $binary = (string) hex2bin($result);
+        [, , $end] = Der::readTlv($binary, 0);
+        $cms = substr($binary, 0, $end);
+
         self::assertSame(Signature::SIGNATURE_MAX_LENGTH, strlen($result));
-        self::assertSame(str_repeat('0', Signature::SIGNATURE_MAX_LENGTH - 4), substr($result, 4));
+        self::assertSame(str_pad(bin2hex($cms), Signature::SIGNATURE_MAX_LENGTH, '0'), $result);
+        self::assertTrue(Pkcs12Fixture::cmsVerifies($cms, $payload));
     }
 }

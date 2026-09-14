@@ -55,7 +55,8 @@ final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
         $signature['Contents'] = new PDFValueSimple('');
 
         $signableDocument = new Buffer($docToXref->raw().$signature->toPdfEntry().$docFromXref->raw());
-        $signatureContents = $this->pkcs7Signer->sign($signableDocument, $signatureProvider);
+        $certificatePem = (string) ($context->verifiedCertificate->bundle['cert'] ?? '');
+        $signatureContents = $this->pkcs7Signer->sign($signableDocument, $signatureProvider, $certificatePem);
 
         $signature['Contents'] = new PDFValueHexString($signatureContents);
         $docToXref->data($signature->toPdfEntry());

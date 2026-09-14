@@ -19,6 +19,6 @@ final class LocalPrivateKeySignatureProviderFactory implements SignatureProvider
             throw new SignProcessException('Verified certificate is missing PEM material for local signing.');
         }
 
-        return new LocalPrivateKeySignatureProvider($cert, $privateKey);
+        return new LocalPrivateKeySignatureProvider($privateKey);
     }
 }
