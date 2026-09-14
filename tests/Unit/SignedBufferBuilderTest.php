@@ -8,11 +8,14 @@ use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfCore\Buffer;
 use SignerPHP\PdfCore\PdfDocument;
 use SignerPHP\PdfCore\SignatureObject;
+use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
 use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
+use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto;
+use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Application\DTO\SignPdfRequestDto;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Domain\ValueObject\VerifiedCertificate;
@@ -41,14 +44,14 @@ final class SignedBufferBuilderTest extends TestCase
             },
             new class implements Pkcs7SignerInterface
             {
-                public function sign(Signature $signatureHandler, Buffer $signableDocument): string
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider): string
                 {
                     return 'AB';
                 }
             },
         );
 
-        $result = $builder->build($pdf, $signature, $this->makeContext(SignatureProfile::PdfBasic, null));
+        $result = $builder->build($pdf, $signature, $this->makeContext(SignatureProfile::PdfBasic, null), $this->makeProvider());
 
         self::assertSame('%PDF-no-cert', $result->raw());
     }
@@ -75,7 +78,7 @@ final class SignedBufferBuilderTest extends TestCase
             },
             new class implements Pkcs7SignerInterface
             {
-                public function sign(Signature $signatureHandler, Buffer $signableDocument): string
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider): string
                 {
                     return 'ABCD';
                 }
@@ -104,7 +107,7 @@ final class SignedBufferBuilderTest extends TestCase
             },
         );
 
-        $result = $builder->build($pdf, $signature, $this->makeContext(SignatureProfile::PadesBaselineLT, new TimestampOptionsDto('https://tsa.example')));
+        $result = $builder->build($pdf, $signature, $this->makeContext(SignatureProfile::PadesBaselineLT, new TimestampOptionsDto('https://tsa.example')), $this->makeProvider());
 
         self::assertSame(1, $calls->timestampCalls);
         self::assertSame(1, $calls->ltvCalls);
@@ -133,7 +136,7 @@ final class SignedBufferBuilderTest extends TestCase
             },
             new class implements Pkcs7SignerInterface
             {
-                public function sign(Signature $signatureHandler, Buffer $signableDocument): string
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider): string
                 {
                     return 'ABCD';
                 }
@@ -162,7 +165,7 @@ final class SignedBufferBuilderTest extends TestCase
             },
         );
 
-        $result = $builder->build($pdf, $signature, $this->makeContext(SignatureProfile::PadesBaselineLTA, new TimestampOptionsDto('https://tsa.example')));
+        $result = $builder->build($pdf, $signature, $this->makeContext(SignatureProfile::PadesBaselineLTA, new TimestampOptionsDto('https://tsa.example')), $this->makeProvider());
 
         self::assertSame(2, $calls->timestampCalls);
         self::assertSame(1, $calls->ltvCalls);
@@ -216,5 +219,16 @@ final class SignedBufferBuilderTest extends TestCase
                 bundle: ['cert' => '', 'pkey' => ''],
             ),
         );
+    }
+
+    private function makeProvider(): SignatureProviderInterface
+    {
+        return new class implements SignatureProviderInterface
+        {
+            public function sign(SigningPayload $payload): SignatureValue
+            {
+                return new SignatureValue('AB');
+            }
+        };
     }
 }

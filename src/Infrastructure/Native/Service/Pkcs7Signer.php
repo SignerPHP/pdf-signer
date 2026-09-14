@@ -5,26 +5,17 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
 use SignerPHP\PdfCore\Buffer;
-use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
+use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
+use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final class Pkcs7Signer implements Pkcs7SignerInterface
 {
-    public function sign(Signature $signatureHandler, Buffer $signableDocument): string
+    public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider): string
     {
-        $tmpFolder = sys_get_temp_dir();
-        $tempFilename = tempnam($tmpFolder, 'pdfsign');
-        if ($tempFilename === false) {
-            throw new SignProcessException('Could not allocate temporary file to sign PDF.');
-        }
+        $signatureValue = $signatureProvider->sign(new SigningPayload($signableDocument->raw()));
 
-        file_put_contents($tempFilename, $signableDocument->raw());
-
-        try {
-            return $signatureHandler->calculatePkcs7Signature($tempFilename, $tmpFolder);
-        } finally {
-            @unlink($tempFilename);
-        }
+        return str_pad(bin2hex($signatureValue->bytes), Signature::SIGNATURE_MAX_LENGTH, '0');
     }
 }
