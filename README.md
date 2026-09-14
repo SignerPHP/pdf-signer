@@ -4,7 +4,7 @@
 
 PHP library to digitally sign PDFs using A1 certificates (`.pfx/.p12`) with a simple, developer-friendly API.
 
-PDF parsing and incremental serialization live in the sibling package [`signerphp/pdf-core`](https://packagist.org/packages/signerphp/pdf-core). This package owns signing, timestamps, PAdES, LTV, validation and protection. The public API remains `SignerPHP\Presentation\Signer`.
+PDF parsing and incremental serialization live in the sibling package [`signerphp/pdf-core`](https://packagist.org/packages/signerphp/pdf-core). This package owns signing, timestamps, PAdES, LTV, validation and protection. The public API is `SignerPHP\PdfSigner\Presentation\Signer`.
 
 ## What problem it solves
 
@@ -55,8 +55,6 @@ composer require signerphp/pdf-signer
 
 Composer also installs [`signerphp/pdf-core`](https://packagist.org/packages/signerphp/pdf-core), which provides PDF parsing and incremental serialization.
 
-The previous package name `jeidison/signer-php` remains compatible through Composer `replace`. Public classes such as `SignerPHP\Presentation\Signer` continue to work.
-
 ## Architecture
 
 ```
@@ -78,7 +76,7 @@ signerphp/pdf-signer
 ```php
 <?php
 
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -106,9 +104,9 @@ $signedPdf = Signer::signer()
 ```php
 <?php
 
-use SignerPHP\Application\DTO\SignatureActorDto;
-use SignerPHP\Application\DTO\SignatureMetadataDto;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\SignatureActorDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureMetadataDto;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $metadata = new SignatureMetadataDto(
    reason: 'Contract approval',
@@ -133,8 +131,8 @@ The image is placed in the n0 layer and scaled with contain logic (aspect ratio 
 ```php
 <?php
 
-use SignerPHP\Application\DTO\SignatureAppearanceDto;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $appearance = new SignatureAppearanceDto(
  backgroundImagePath: '/tmp/stamp.png',
@@ -166,8 +164,8 @@ To show the signer's drawn PNG on a specific area of the bbox (e.g. left half), 
 ```php
 <?php
 
-use SignerPHP\Application\DTO\SignatureAppearanceDto;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $bboxW = 150; // urx - llx
 $bboxH = 60;  // ury - lly
@@ -194,9 +192,9 @@ To embed arbitrary PDF text or graphics operators in the n2 layer — for exampl
 ```php
 <?php
 
-use SignerPHP\Application\DTO\SignatureAppearanceDto;
-use SignerPHP\Application\DTO\SignatureAppearanceXObjectDto;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceXObjectDto;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $stream = "BT\n/F1 9 Tf\n0 0 0 rg\n4 44 Td\n(Signed by: Maria Silva) Tj\n0 -12 Td\n(Date: 2026-03-04) Tj\nET\n";
 
@@ -226,7 +224,7 @@ $signedPdf = Signer::signer()
 ```php
 <?php
 
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -242,7 +240,7 @@ Use the signed output as input for the next signature:
 ```php
 <?php
 
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $step1 = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -265,7 +263,7 @@ In this case, the library uses a public default TSA (`https://freetsa.org/tsr`).
 ```php
 <?php
 
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -282,8 +280,8 @@ The `hashAlgorithm` field accepts `HashAlgorithm` (recommended) or a compatible 
 ```php
 <?php
 
-use SignerPHP\Application\DTO\TimestampOptionsDto;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -304,7 +302,7 @@ $signedPdf = Signer::signer()
 ```php
 <?php
 
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -320,8 +318,8 @@ For SaaS/API flows, you can run a real TSA routine (not only endpoint ping) usin
 ```php
 <?php
 
-use SignerPHP\Application\DTO\TimestampOptionsDto;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $tsa = Signer::timestamp()
  ->withOptions(new TimestampOptionsDto(
@@ -344,7 +342,7 @@ $tokenHex = $tsa
 ```php
 <?php
 
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -358,7 +356,7 @@ $signedPdf = Signer::signer()
 ```php
 <?php
 
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -374,7 +372,7 @@ In `PAdES-T` mode, timestamp must be active (for example, `withTimestamp(...)`).
 ```php
 <?php
 
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -390,7 +388,7 @@ In `PAdES-LT` mode, besides timestamping, the library applies DSS enrichment wit
 ```php
 <?php
 
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -406,8 +404,8 @@ In `PAdES-LTA` mode, after LT enrichment, the library adds one extra archival `D
 ```php
 <?php
 
-use SignerPHP\Application\DTO\CertificationLevel;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -432,8 +430,8 @@ Default behavior:
 ```php
 <?php
 
-use SignerPHP\Application\DTO\BrazilSignaturePolicyOptionsDto;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\BrazilSignaturePolicyOptionsDto;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -467,8 +465,8 @@ SERPRO helper example:
 ```php
 <?php
 
-use SignerPHP\Application\DTO\BrazilSignaturePolicyOptionsDto;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\BrazilSignaturePolicyOptionsDto;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -487,8 +485,8 @@ $signedPdf = Signer::signer()
 ```php
 <?php
 
-use SignerPHP\Application\DTO\ProtectionOptionsDto;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\ProtectionOptionsDto;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $protectedPdf = Signer::protection()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -508,8 +506,8 @@ Use this flow to avoid ordering mistakes and ensure the signature is applied on 
 ```php
 <?php
 
-use SignerPHP\Application\DTO\ProtectionOptionsDto;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\ProtectionOptionsDto;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $signedProtectedPdf = Signer::signer()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -528,7 +526,7 @@ file_put_contents('/tmp/output-protected-signed.pdf', $signedProtectedPdf);
 ```php
 <?php
 
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $validation = Signer::validation()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -548,7 +546,7 @@ if ($validation->allValid) {
 ```php
 <?php
 
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $validation = Signer::validation()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -565,7 +563,7 @@ foreach ($validation->entries as $entry) {
 ```php
 <?php
 
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $validation = Signer::validation()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -598,9 +596,9 @@ You can override these URLs:
 ```php
 <?php
 
-use SignerPHP\Application\DTO\BrazilPolicyLpaUrlsDto;
-use SignerPHP\Application\DTO\BrazilTrustAnchorsOptionsDto;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\BrazilPolicyLpaUrlsDto;
+use SignerPHP\PdfSigner\Application\DTO\BrazilTrustAnchorsOptionsDto;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 $validation = Signer::validation()
  ->withPdfContent(file_get_contents('/tmp/input.pdf'))
@@ -798,9 +796,9 @@ php bin/signer-sign --help
 
 ## Exceptions you should handle
 
-- `SignerPHP\\Domain\\Exception\\InvalidCertificateException`
-- `SignerPHP\\Domain\\Exception\\SignProcessException`
-- `SignerPHP\\Domain\\Exception\\SignerException`
+- `SignerPHP\\PdfSigner\\Domain\\Exception\\InvalidCertificateException`
+- `SignerPHP\\PdfSigner\\Domain\\Exception\\SignProcessException`
+- `SignerPHP\\PdfSigner\\Domain\\Exception\\SignerException`
 
 ## Operational requirements
 

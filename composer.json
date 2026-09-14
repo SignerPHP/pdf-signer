@@ -37,17 +37,11 @@
         "infection/infection": "^0.29",
         "roave/security-advisories": "dev-latest"
     },
-    "replace": {
-        "jeidison/signer-php": "self.version"
-    },
     "license": "MIT",
     "autoload": {
         "psr-4": {
             "SignerPHP\\PdfSigner\\": "src/"
-        },
-        "files": [
-            "src/Compatibility/aliases.php"
-        ]
+        }
     },
     "autoload-dev": {
         "psr-4": {

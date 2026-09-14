@@ -17,23 +17,18 @@ foreach ($autoloadCandidates as $autoload) {
 }
 
 spl_autoload_register(static function (string $class): void {
-    $prefixes = [
-        'SignerPHP\\PdfSigner\\' => __DIR__.'/../src/',
-        'SignerPHP\\' => __DIR__.'/../src/',
-        'Jeidison\\SignerPHP\\' => __DIR__.'/../../src/',
-    ];
+    $prefix = 'SignerPHP\\PdfSigner\\';
+    $baseDir = __DIR__.'/../src/';
 
-    foreach ($prefixes as $prefix => $baseDir) {
-        if (! str_starts_with($class, $prefix)) {
-            continue;
-        }
+    if (! str_starts_with($class, $prefix)) {
+        return;
+    }
 
-        $relative = str_replace('\\', '/', substr($class, strlen($prefix)));
-        $file = $baseDir.$relative.'.php';
+    $relative = str_replace('\\', '/', substr($class, strlen($prefix)));
+    $file = $baseDir.$relative.'.php';
 
-        if (is_file($file)) {
-            require_once $file;
-        }
+    if (is_file($file)) {
+        require_once $file;
     }
 });
 
