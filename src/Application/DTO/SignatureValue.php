@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Application\DTO;
 
 /**
- * Bytes produced by a signature provider.
+ * Raw signature bytes produced by a signature provider.
  *
- * The local OpenSSL provider currently returns detached CMS/PKCS#7 DER because
- * openssl_pkcs7_sign fuses CMS assembly with the private-key operation.
+ * Providers must return only the cryptographic signature (for example the
+ * output of openssl_sign). Detached CMS/PKCS#7 assembly happens in pdf-signer.
  */
 final readonly class SignatureValue
 {

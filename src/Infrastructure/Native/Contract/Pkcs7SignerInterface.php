@@ -9,5 +9,9 @@ use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 
 interface Pkcs7SignerInterface
 {
-    public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider): string;
+    public function sign(
+        Buffer $signableDocument,
+        SignatureProviderInterface $signatureProvider,
+        string $certificatePem,
+    ): string;
 }

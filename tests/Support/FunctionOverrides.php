@@ -12,6 +12,12 @@ final class NativeFunctionOverrideState
 
     public static bool $forceIsFileFalse = false;
 
+    public static bool $forceOpensslSignFailure = false;
+
+    public static bool $forceOpensslPublicKeyFailure = false;
+
+    public static bool $forceUnsupportedKeyType = false;
+
     /** @var array<int, string> */
     public static array $failTempnamPrefixes = [];
 }
@@ -47,6 +53,42 @@ function is_file(string $filename): bool
     }
 
     return \is_file($filename);
+}
+
+function openssl_sign(string $data, string &$signature, mixed $private_key, mixed $algorithm = OPENSSL_ALGO_SHA1): bool
+{
+    if (NativeFunctionOverrideState::$forceOpensslSignFailure) {
+        return false;
+    }
+
+    return \openssl_sign($data, $signature, $private_key, $algorithm);
+}
+
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms;
+
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
+
+function openssl_pkey_get_public(mixed $public_key): \OpenSSLAsymmetricKey|false
+{
+    if (NativeFunctionOverrideState::$forceOpensslPublicKeyFailure) {
+        return false;
+    }
+
+    return \openssl_pkey_get_public($public_key);
+}
+
+function openssl_pkey_get_details(\OpenSSLAsymmetricKey $key): array|false
+{
+    $details = \openssl_pkey_get_details($key);
+    if ($details === false) {
+        return false;
+    }
+
+    if (NativeFunctionOverrideState::$forceUnsupportedKeyType) {
+        $details['type'] = -1;
+    }
+
+    return $details;
 }
 
 namespace SignerPHP\PdfSigner\Infrastructure\Native\Service\Inspect;
