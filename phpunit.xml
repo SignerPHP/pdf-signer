@@ -19,5 +19,9 @@
         <include>
             <directory suffix=".php">./src</directory>
         </include>
+        <exclude>
+            <!-- Composer files autoload runs this before coverage starts. -->
+            <file>./src/Compatibility/aliases.php</file>
+        </exclude>
     </source>
 </phpunit>
