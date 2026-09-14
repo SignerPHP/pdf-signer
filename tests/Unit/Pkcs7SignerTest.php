@@ -6,59 +6,33 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfCore\Buffer;
-use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
+use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
+use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
+use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Pkcs7Signer;
 use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final class Pkcs7SignerTest extends TestCase
 {
-    protected function tearDown(): void
+    public function test_sign_hex_encodes_and_pads_provider_bytes(): void
     {
-        NativeFunctionOverrideState::$forceTempnamFailure = false;
-    }
-
-    public function test_sign_writes_temporary_file_and_returns_signature_payload(): void
-    {
-        $captured = new class
+        $provider = new class implements SignatureProviderInterface
         {
-            public ?string $filePath = null;
+            public ?SigningPayload $payload = null;
 
-            public ?string $fileContent = null;
-        };
-
-        $signature = new class($captured) extends Signature
-        {
-            public function __construct(private object $captured)
+            public function sign(SigningPayload $payload): SignatureValue
             {
-                parent::__construct();
-            }
+                $this->payload = $payload;
 
-            public function calculatePkcs7Signature(string $fileNameToSign, string $tmpFolder = '/tmp'): string
-            {
-                $this->captured->filePath = $fileNameToSign;
-                $this->captured->fileContent = (string) file_get_contents($fileNameToSign);
-
-                return 'ABCD';
+                return new SignatureValue('AB');
             }
         };
 
-        $signer = new Pkcs7Signer;
-        $result = $signer->sign($signature, new Buffer('payload-to-sign'));
+        $result = (new Pkcs7Signer)->sign(new Buffer('payload-to-sign'), $provider);
 
-        self::assertSame('ABCD', $result);
-        self::assertSame('payload-to-sign', $captured->fileContent);
-        self::assertNotNull($captured->filePath);
-        self::assertFalse(is_file((string) $captured->filePath));
-    }
-
-    public function test_sign_throws_when_temp_file_cannot_be_allocated(): void
-    {
-        NativeFunctionOverrideState::$forceTempnamFailure = true;
-
-        $this->expectException(SignProcessException::class);
-        $this->expectExceptionMessage('Could not allocate temporary file to sign PDF.');
-
-        (new Pkcs7Signer)->sign(Signature::new(), new Buffer('payload'));
+        self::assertSame('payload-to-sign', $provider->payload?->data);
+        self::assertSame('4142', substr($result, 0, 4));
+        self::assertSame(Signature::SIGNATURE_MAX_LENGTH, strlen($result));
+        self::assertSame(str_repeat('0', Signature::SIGNATURE_MAX_LENGTH - 4), substr($result, 4));
     }
 }

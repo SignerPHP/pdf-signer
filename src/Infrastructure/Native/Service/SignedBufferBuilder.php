@@ -9,6 +9,7 @@ use SignerPHP\PdfCore\PdfDocument;
 use SignerPHP\PdfCore\PdfValue\PDFValueHexString;
 use SignerPHP\PdfCore\PdfValue\PDFValueSimple;
 use SignerPHP\PdfCore\Xref\Xref;
+use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
@@ -27,8 +28,12 @@ final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
         private LongTermValidationApplierInterface $longTermValidationApplier = new DocumentLongTermValidationApplier,
     ) {}
 
-    public function build(PdfDocument $pdfDocument, Signature $signatureHandler, SigningContextDto $context): Buffer
-    {
+    public function build(
+        PdfDocument $pdfDocument,
+        Signature $signatureHandler,
+        SigningContextDto $context,
+        SignatureProviderInterface $signatureProvider,
+    ): Buffer {
         if (! $signatureHandler->hasCertificate()) {
             return $pdfDocument->getBuffer();
         }
@@ -50,7 +55,7 @@ final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
         $signature['Contents'] = new PDFValueSimple('');
 
         $signableDocument = new Buffer($docToXref->raw().$signature->toPdfEntry().$docFromXref->raw());
-        $signatureContents = $this->pkcs7Signer->sign($signatureHandler, $signableDocument);
+        $signatureContents = $this->pkcs7Signer->sign($signableDocument, $signatureProvider);
 
         $signature['Contents'] = new PDFValueHexString($signatureContents);
         $docToXref->data($signature->toPdfEntry());
