@@ -6,11 +6,11 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfCore\Buffer;
+use SignerPHP\PdfCore\SignatureObject;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProvider;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Pkcs7Signer;
-use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
 
 final class Pkcs7SignerTest extends TestCase
@@ -36,8 +36,8 @@ final class Pkcs7SignerTest extends TestCase
         [, , $end] = Der::readTlv($binary, 0);
         $cms = substr($binary, 0, $end);
 
-        self::assertSame(Signature::SIGNATURE_MAX_LENGTH, strlen($result));
-        self::assertSame(str_pad(bin2hex($cms), Signature::SIGNATURE_MAX_LENGTH, '0'), $result);
+        self::assertSame(SignatureObject::SIGNATURE_MAX_LENGTH, strlen($result));
+        self::assertSame(str_pad(bin2hex($cms), SignatureObject::SIGNATURE_MAX_LENGTH, '0'), $result);
         self::assertTrue(Pkcs12Fixture::cmsVerifies($cms, $payload));
     }
 }

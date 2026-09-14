@@ -20,7 +20,7 @@ use SignerPHP\PdfSigner\Application\DTO\SignPdfRequestDto;
 use SignerPHP\PdfSigner\Domain\ValueObject\VerifiedCertificate;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DefaultSignatureAppearanceProviderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureFactory;
-use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignatureHandler;
 
 final class PdfSignatureFactoryTest extends TestCase
 {
@@ -237,7 +237,7 @@ final class PdfSignatureFactoryTest extends TestCase
         );
     }
 
-    private function extractAppearance(Signature $signature): SignatureAppearance
+    private function extractAppearance(SignatureHandler $signature): SignatureAppearance
     {
         /** @var SignatureAppearance $appearance */
         $appearance = $this->readPrivateProperty($signature, 'appearance');
@@ -245,7 +245,7 @@ final class PdfSignatureFactoryTest extends TestCase
         return $appearance;
     }
 
-    private function extractSubFilter(Signature $signature): string
+    private function extractSubFilter(SignatureHandler $signature): string
     {
         return (string) $this->readPrivateProperty($signature, 'subFilter');
     }

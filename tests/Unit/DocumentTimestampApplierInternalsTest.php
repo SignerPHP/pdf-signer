@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
+use SignerPHP\PdfCore\SignatureObject;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\DocumentTimestampApplier;
-use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final class DocumentTimestampApplierInternalsTest extends TestCase
 {
@@ -19,7 +19,7 @@ final class DocumentTimestampApplierInternalsTest extends TestCase
 
         $normalized = $method->invoke($applier, 'ab12');
 
-        self::assertSame(Signature::SIGNATURE_MAX_LENGTH, strlen($normalized));
+        self::assertSame(SignatureObject::SIGNATURE_MAX_LENGTH, strlen($normalized));
         self::assertStringStartsWith('AB12', $normalized);
     }
 
@@ -53,7 +53,7 @@ final class DocumentTimestampApplierInternalsTest extends TestCase
 
         $this->expectException(SignProcessException::class);
         $this->expectExceptionMessage('RFC3161 token exceeds reserved signature size');
-        $method->invoke($applier, str_repeat('A', Signature::SIGNATURE_MAX_LENGTH + 1));
+        $method->invoke($applier, str_repeat('A', SignatureObject::SIGNATURE_MAX_LENGTH + 1));
     }
 
     public function test_extract_byte_range_values_parses_expected_format(): void
