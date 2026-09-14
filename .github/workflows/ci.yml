@@ -19,15 +19,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Checkout pdf-core
-        uses: actions/checkout@v7
-        with:
-          repository: SignerPHP/pdf-core
-          path: .deps/pdf-core
-
-      - name: Expose pdf-core as sibling package
-        run: ln -sfn "$GITHUB_WORKSPACE/.deps/pdf-core" "$GITHUB_WORKSPACE/../pdf-core"
-
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -70,15 +61,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Checkout pdf-core
-        uses: actions/checkout@v7
-        with:
-          repository: SignerPHP/pdf-core
-          path: .deps/pdf-core
-
-      - name: Expose pdf-core as sibling package
-        run: ln -sfn "$GITHUB_WORKSPACE/.deps/pdf-core" "$GITHUB_WORKSPACE/../pdf-core"
-
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -108,15 +90,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      - name: Checkout pdf-core
-        uses: actions/checkout@v7
-        with:
-          repository: SignerPHP/pdf-core
-          path: .deps/pdf-core
-
-      - name: Expose pdf-core as sibling package
-        run: ln -sfn "$GITHUB_WORKSPACE/.deps/pdf-core" "$GITHUB_WORKSPACE/../pdf-core"
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -148,15 +121,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-
-      - name: Checkout pdf-core
-        uses: actions/checkout@v7
-        with:
-          repository: SignerPHP/pdf-core
-          path: .deps/pdf-core
-
-      - name: Expose pdf-core as sibling package
-        run: ln -sfn "$GITHUB_WORKSPACE/.deps/pdf-core" "$GITHUB_WORKSPACE/../pdf-core"
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2

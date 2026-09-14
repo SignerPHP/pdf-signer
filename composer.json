@@ -26,7 +26,7 @@
         "ext-curl": "*",
         "ext-zlib": "*",
         "ext-fileinfo": "*",
-        "signerphp/pdf-core": "^0.1"
+        "signerphp/pdf-core": "^0.1.1"
     },
     "require-dev": {
         "pestphp/pest": "^3.0",
@@ -84,17 +84,5 @@
             "pestphp/pest-plugin": true,
             "infection/extension-installer": true
         }
-    },
-    "repositories": [
-        {
-            "type": "path",
-            "url": "../pdf-core",
-            "options": {
-                "symlink": true,
-                "versions": {
-                    "signerphp/pdf-core": "0.1.0"
-                }
-            }
-        }
-    ]
+    }
 }

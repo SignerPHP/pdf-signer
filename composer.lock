@@ -4,15 +4,21 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "46033f2eacc414e4db25e8b86d053da0",
+    "content-hash": "35cf659bd319b126301a63353c03708b",
     "packages": [
         {
             "name": "signerphp/pdf-core",
-            "version": "0.1.0",
+            "version": "v0.1.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/SignerPHP/pdf-core.git",
+                "reference": "5b2e95ff62fbf4927c3a391e7f35f6570d517d7b"
+            },
             "dist": {
-                "type": "path",
-                "url": "../pdf-core",
-                "reference": "ed594fa386debba26b4fd287e5259ae7493f4690"
+                "type": "zip",
+                "url": "https://api.github.com/repos/SignerPHP/pdf-core/zipball/5b2e95ff62fbf4927c3a391e7f35f6570d517d7b",
+                "reference": "5b2e95ff62fbf4927c3a391e7f35f6570d517d7b",
+                "shasum": ""
             },
             "require": {
                 "ext-ctype": "*",
@@ -25,35 +31,40 @@
                 "pestphp/pest": "^3.0"
             },
             "type": "library",
+            "extra": {
+                "branch-alias": {
+                    "dev-main": "0.1.x-dev"
+                }
+            },
             "autoload": {
                 "psr-4": {
                     "SignerPHP\\PdfCore\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "SignerPHP\\PdfCore\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "tests": [
-                    "vendor/bin/pest --configuration phpunit.xml tests"
-                ],
-                "pint:check": [
-                    "vendor/bin/pint --test"
-                ],
-                "pint:fix": [
-                    "vendor/bin/pint"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
+            "authors": [
+                {
+                    "name": "Jeidison Farias"
+                }
+            ],
             "description": "Standalone PDF parsing, manipulation and incremental serialization library",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "homepage": "https://github.com/SignerPHP/pdf-core",
+            "keywords": [
+                "AcroForm",
+                "incremental-update",
+                "object-stream",
+                "parser",
+                "pdf",
+                "xref"
+            ],
+            "support": {
+                "issues": "https://github.com/SignerPHP/pdf-core/issues",
+                "source": "https://github.com/SignerPHP/pdf-core"
+            },
+            "time": "2026-09-14T15:11:36+00:00"
         }
     ],
     "packages-dev": [
@@ -9128,7 +9139,7 @@
     "stability-flags": {
         "roave/security-advisories": 20
     },
-    "prefer-stable": false,
+    "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
         "php": "^8.2",

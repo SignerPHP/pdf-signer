@@ -1,5 +1,7 @@
 # Signer PHP (PDF Module)
 
+[![Packagist](https://img.shields.io/packagist/v/signerphp/pdf-signer.svg)](https://packagist.org/packages/signerphp/pdf-signer)
+
 PHP library to digitally sign PDFs using A1 certificates (`.pfx/.p12`) with a simple, developer-friendly API.
 
 ## What problem it solves
@@ -48,6 +50,8 @@ Install with Composer:
 ```bash
 composer require signerphp/pdf-signer
 ```
+
+Composer also installs [`signerphp/pdf-core`](https://packagist.org/packages/signerphp/pdf-core), which provides PDF parsing and incremental serialization.
 
 The previous package name `jeidison/signer-php` remains compatible through Composer `replace`. Public classes such as `SignerPHP\Presentation\Signer` continue to work.
 
