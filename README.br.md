@@ -1,8 +1,10 @@
-# Signer PHP (PDF Module)
+# Signer PHP (`signerphp/pdf-signer`)
 
 [![Packagist](https://img.shields.io/packagist/v/signerphp/pdf-signer.svg)](https://packagist.org/packages/signerphp/pdf-signer)
 
 Biblioteca PHP para assinar PDFs digitalmente com certificado A1 (`.pfx/.p12`), com API simples e foco em produtividade.
+
+O parse e a serialização incremental do PDF ficam no pacote irmão [`signerphp/pdf-core`](https://packagist.org/packages/signerphp/pdf-core). Este pacote cuida de assinatura, timestamp, PAdES, LTV, validação e proteção. A API pública continua `SignerPHP\Presentation\Signer`.
 
 ## O que este projeto resolve
 
@@ -36,7 +38,7 @@ Se você precisa assinar PDFs no backend com validade criptográfica, esta bibli
 
 ## Requisitos
 
-- PHP `^8.4`
+- PHP `^8.2`
 - `ext-openssl`
 - `ext-curl`
 - recomendado: `ext-zlib` e `ext-fileinfo`
@@ -52,6 +54,20 @@ composer require signerphp/pdf-signer
 O Composer também instala o [`signerphp/pdf-core`](https://packagist.org/packages/signerphp/pdf-core), responsável pelo parse e pela serialização incremental do PDF.
 
 O nome anterior `jeidison/signer-php` permanece compatível via `replace` do Composer. Classes públicas como `SignerPHP\Presentation\Signer` continuam funcionando.
+
+## Arquitetura
+
+```
+signerphp/pdf-signer
+        |
+        +-- signerphp/pdf-core     parse de PDF, xref, ByteRange, update incremental
+        |
+        +-- CMS / PAdES / LTV      container da assinatura, timestamp, DSS
+        |
+        +-- SignatureProvider      operação com a private key (OpenSSL local por padrão)
+```
+
+O `pdf-core` nunca depende do `pdf-signer`. A assinatura local com PKCS#12 é o padrão; provedores CSC/HSM ainda não fazem parte da API pública.
 
 ## Como usar
 
@@ -714,10 +730,8 @@ php bin/signer-sign --help
   - Baseline-LT: Baseline-T + `DSS` (`Certs`, `OCSPs`, `CRLs`, `VRI`) com coleta best-effort conforme disponibilidade dos endpoints da cadeia
   - Baseline-LTA: Baseline-LT + `Document Timestamp` arquivístico adicional
 - A aparência padrão usa `page = 0` e retângulo interno padrão; para controle total, use `withAppearance(...)`.
-- Algumas variações de PNG (filtros/modos específicos) podem ser rejeitadas.
-- Escopo técnico atual do parser PDF:
-  - Objetos com geração diferente de `0` não são suportados
-  - Extended object streams não são suportados
+- Profundidades PNG suportadas: 1, 2, 4, 8 e 16 bits por canal, incluindo RGBA 16-bit e extração de alpha via SMask.
+- O parse de PDF (xref clássico, xref stream, object streams, `/Prev`, hybrid `/XRefStm`) está no [`signerphp/pdf-core`](https://packagist.org/packages/signerphp/pdf-core).
 
 ## Executando os testes
 

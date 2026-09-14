@@ -1,8 +1,10 @@
-# Signer PHP (PDF Module)
+# Signer PHP (`signerphp/pdf-signer`)
 
 [![Packagist](https://img.shields.io/packagist/v/signerphp/pdf-signer.svg)](https://packagist.org/packages/signerphp/pdf-signer)
 
 PHP library to digitally sign PDFs using A1 certificates (`.pfx/.p12`) with a simple, developer-friendly API.
+
+PDF parsing and incremental serialization live in the sibling package [`signerphp/pdf-core`](https://packagist.org/packages/signerphp/pdf-core). This package owns signing, timestamps, PAdES, LTV, validation and protection. The public API remains `SignerPHP\Presentation\Signer`.
 
 ## What problem it solves
 
@@ -54,6 +56,20 @@ composer require signerphp/pdf-signer
 Composer also installs [`signerphp/pdf-core`](https://packagist.org/packages/signerphp/pdf-core), which provides PDF parsing and incremental serialization.
 
 The previous package name `jeidison/signer-php` remains compatible through Composer `replace`. Public classes such as `SignerPHP\Presentation\Signer` continue to work.
+
+## Architecture
+
+```
+signerphp/pdf-signer
+        |
+        +-- signerphp/pdf-core     PDF parse, xref, ByteRange, incremental update
+        |
+        +-- CMS / PAdES / LTV      signature container, timestamp, DSS
+        |
+        +-- SignatureProvider      private-key operation (local OpenSSL by default)
+```
+
+`pdf-core` never depends on `pdf-signer`. Local PKCS#12 signing is the default; CSC/HSM providers are not part of the public API yet.
 
 ## Usage
 
@@ -803,9 +819,7 @@ php bin/signer-sign --help
   - Baseline-LTA: Baseline-LT + additional archival `Document Timestamp`
 - Default appearance uses `page = 0` and an internal default rectangle; for full control use `withAppearance(...)`.
 - Supported PNG bit depths: 1, 2, 4, 8, and 16 bits per channel. 16-bit RGBA and grayscale-alpha PNGs are fully supported including SMask alpha extraction.
-- Current PDF parser technical scope:
-  - Objects with generation different from `0` are not supported
-  - Extended object streams are not supported
+- PDF parsing (classic xref, xref streams, object streams, `/Prev`, hybrid `/XRefStm`) is implemented in [`signerphp/pdf-core`](https://packagist.org/packages/signerphp/pdf-core).
 
 ## Running tests
 
