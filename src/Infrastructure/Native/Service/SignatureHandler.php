@@ -45,11 +45,15 @@ class SignatureHandler
     }
 
     /**
-     * @param  array{cert?: string, pkey?: string, extracerts?: string}  $certificate
+     * @param  array{cert?: string, pkey?: string, extracerts?: mixed}  $certificate
      */
     public function withCertificate(array $certificate): self
     {
-        $this->certificate = $certificate;
+        $this->certificate = [
+            'cert' => (string) ($certificate['cert'] ?? ''),
+            'pkey' => (string) ($certificate['pkey'] ?? ''),
+            'extracerts' => is_string($certificate['extracerts'] ?? null) ? $certificate['extracerts'] : '',
+        ];
 
         return $this;
     }
