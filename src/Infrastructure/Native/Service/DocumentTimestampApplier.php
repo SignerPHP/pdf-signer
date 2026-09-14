@@ -8,12 +8,12 @@ use SignerPHP\PdfCore\Buffer;
 use SignerPHP\PdfCore\PdfValue\PDFValueHexString;
 use SignerPHP\PdfCore\PdfValue\PDFValueSimple;
 use SignerPHP\PdfCore\Service\DocumentTimestampObjectAssembler;
+use SignerPHP\PdfCore\SignatureObject;
 use SignerPHP\PdfCore\Xref\Xref;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
-use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final readonly class DocumentTimestampApplier implements DocumentTimestampApplierInterface
 {
@@ -64,7 +64,7 @@ final readonly class DocumentTimestampApplier implements DocumentTimestampApplie
             throw new SignProcessException('RFC3161 timestamp token is not valid hex.');
         }
 
-        $max = Signature::SIGNATURE_MAX_LENGTH;
+        $max = SignatureObject::SIGNATURE_MAX_LENGTH;
         if (strlen($timestampHex) > $max) {
             throw new SignProcessException(
                 sprintf('RFC3161 token exceeds reserved signature size (%d > %d).', strlen($timestampHex), $max)

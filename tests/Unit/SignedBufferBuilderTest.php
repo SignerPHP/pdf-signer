@@ -23,8 +23,8 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierI
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\LongTermValidationApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\XrefContentResolverInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignatureHandler;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignedBufferBuilder;
-use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final class SignedBufferBuilderTest extends TestCase
 {
@@ -33,7 +33,7 @@ final class SignedBufferBuilderTest extends TestCase
         $pdf = new PdfDocument;
         $pdf->setBufferFromString('%PDF-no-cert');
 
-        $signature = Signature::new();
+        $signature = SignatureHandler::new();
         $builder = new SignedBufferBuilder(
             new class implements XrefContentResolverInterface
             {
@@ -186,9 +186,9 @@ final class SignedBufferBuilderTest extends TestCase
         return $pdf;
     }
 
-    private function makeSignatureHandlerWithCertificate(): Signature
+    private function makeSignatureHandlerWithCertificate(): SignatureHandler
     {
-        return new class extends Signature
+        return new class extends SignatureHandler
         {
             public function hasCertificate(): bool
             {

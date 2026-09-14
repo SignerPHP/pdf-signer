@@ -17,7 +17,6 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\LongTermValidationApplier
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignedBufferBuilderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\XrefContentResolverInterface;
-use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
 {
@@ -30,7 +29,7 @@ final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
 
     public function build(
         PdfDocument $pdfDocument,
-        Signature $signatureHandler,
+        SignatureHandler $signatureHandler,
         SigningContextDto $context,
         SignatureProviderInterface $signatureProvider,
     ): Buffer {

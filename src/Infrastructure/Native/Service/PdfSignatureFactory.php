@@ -13,7 +13,6 @@ use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DefaultSignatureAppearanceProviderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureFactoryInterface;
-use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final class PdfSignatureFactory implements SignatureFactoryInterface
 {
@@ -21,9 +20,9 @@ final class PdfSignatureFactory implements SignatureFactoryInterface
         private readonly DefaultSignatureAppearanceProviderInterface $defaultAppearanceProvider = new DefaultSignatureAppearanceProvider,
     ) {}
 
-    public function create(SigningContextDto $context, PdfDocument $pdfDocument): Signature
+    public function create(SigningContextDto $context, PdfDocument $pdfDocument): SignatureHandler
     {
-        $signature = Signature::new()
+        $signature = SignatureHandler::new()
             ->withPdfDocument($pdfDocument)
             ->withCertificate($context->verifiedCertificate->bundle)
             ->withMetadata($this->toMetadata($context))

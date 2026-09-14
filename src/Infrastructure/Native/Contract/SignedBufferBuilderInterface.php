@@ -8,13 +8,13 @@ use SignerPHP\PdfCore\Buffer;
 use SignerPHP\PdfCore\PdfDocument;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
-use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignatureHandler;
 
 interface SignedBufferBuilderInterface
 {
     public function build(
         PdfDocument $pdfDocument,
-        Signature $signatureHandler,
+        SignatureHandler $signatureHandler,
         SigningContextDto $context,
         SignatureProviderInterface $signatureProvider,
     ): Buffer;

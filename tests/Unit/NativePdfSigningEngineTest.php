@@ -24,7 +24,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureFactoryInterface
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignedBufferBuilderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\NativePdfSigningEngine;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProvider;
-use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignatureHandler;
 
 final class NativePdfSigningEngineTest extends TestCase
 {
@@ -48,11 +48,11 @@ final class NativePdfSigningEngineTest extends TestCase
         {
             public ?PdfDocument $receivedDocument = null;
 
-            public function create(SigningContextDto $context, PdfDocument $pdfDocument): Signature
+            public function create(SigningContextDto $context, PdfDocument $pdfDocument): SignatureHandler
             {
                 $this->receivedDocument = $pdfDocument;
 
-                return Signature::new();
+                return SignatureHandler::new();
             }
         };
 
@@ -60,7 +60,7 @@ final class NativePdfSigningEngineTest extends TestCase
         {
             public ?PdfDocument $receivedDocument = null;
 
-            public ?Signature $receivedSignature = null;
+            public ?SignatureHandler $receivedSignature = null;
 
             public ?SigningContextDto $receivedContext = null;
 
@@ -68,7 +68,7 @@ final class NativePdfSigningEngineTest extends TestCase
 
             public function build(
                 PdfDocument $pdfDocument,
-                Signature $signatureHandler,
+                SignatureHandler $signatureHandler,
                 SigningContextDto $context,
                 SignatureProviderInterface $signatureProvider,
             ): Buffer {
@@ -88,7 +88,7 @@ final class NativePdfSigningEngineTest extends TestCase
         self::assertSame('input-pdf', $preparer->receivedContent);
         self::assertSame('input-pdf', $factory->receivedDocument?->getBuffer()->raw());
         self::assertSame($factory->receivedDocument, $builder->receivedDocument);
-        self::assertInstanceOf(Signature::class, $builder->receivedSignature);
+        self::assertInstanceOf(SignatureHandler::class, $builder->receivedSignature);
         self::assertInstanceOf(SigningContextDto::class, $builder->receivedContext);
         self::assertInstanceOf(LocalPrivateKeySignatureProvider::class, $builder->receivedProvider);
     }
@@ -119,7 +119,7 @@ final class NativePdfSigningEngineTest extends TestCase
 
             public function build(
                 PdfDocument $pdfDocument,
-                Signature $signatureHandler,
+                SignatureHandler $signatureHandler,
                 SigningContextDto $context,
                 SignatureProviderInterface $signatureProvider,
             ): Buffer {
@@ -142,9 +142,9 @@ final class NativePdfSigningEngineTest extends TestCase
             },
             new class implements SignatureFactoryInterface
             {
-                public function create(SigningContextDto $context, PdfDocument $pdfDocument): Signature
+                public function create(SigningContextDto $context, PdfDocument $pdfDocument): SignatureHandler
                 {
-                    return Signature::new();
+                    return SignatureHandler::new();
                 }
             },
             $builder,
@@ -171,16 +171,16 @@ final class NativePdfSigningEngineTest extends TestCase
             $preparer,
             new class implements SignatureFactoryInterface
             {
-                public function create(SigningContextDto $context, PdfDocument $pdfDocument): Signature
+                public function create(SigningContextDto $context, PdfDocument $pdfDocument): SignatureHandler
                 {
-                    return Signature::new();
+                    return SignatureHandler::new();
                 }
             },
             new class implements SignedBufferBuilderInterface
             {
                 public function build(
                     PdfDocument $pdfDocument,
-                    Signature $signatureHandler,
+                    SignatureHandler $signatureHandler,
                     SigningContextDto $context,
                     SignatureProviderInterface $signatureProvider,
                 ): Buffer {

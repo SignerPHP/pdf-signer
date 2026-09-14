@@ -96,7 +96,7 @@ New library: signerphp/pdf-core; PHP ^8.2; ext-zlib, ext-fileinfo, ext-ctype. PS
 - Structure/signature inspection uses regular expressions and is not a replacement for authoritative object parsing.
 - FormMDP has no dedicated implementation to extract; PDF dictionaries can represent it. A dedicated manipulation API is future pdf-core work.
 - Existing Producer metadata text is retained for behavior compatibility.
-- Legacy signing helpers remain temporarily in Infrastructure/PdfCore; this folder will contain no duplicated PDF implementation.
+- Signing orchestration lives in Native (`SignatureHandler`, CMS assembler). `Infrastructure/PdfCore` was removed; pdf-core owns PDF objects and serialization.
 
 ## Exact moved test inventory
 
