@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Infrastructure\Native\Service\Inspect\PdfStructureInspector;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Inspect\PdfStructureInspector;
 
 final class PdfStructureInspectorTest extends TestCase
 {

@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Application\Contract\PdfSignatureValidationEngineInterface;
-use SignerPHP\Application\DTO\BrazilPolicyLpaUrlsDto;
-use SignerPHP\Application\DTO\BrazilTrustAnchorsOptionsDto;
-use SignerPHP\Application\DTO\PdfContentDto;
-use SignerPHP\Application\DTO\SignatureValidationResultDto;
-use SignerPHP\Application\DTO\ValidatePdfRequestDto;
-use SignerPHP\Application\Service\PdfSignatureValidationService;
-use SignerPHP\Domain\Exception\SignerException;
-use SignerPHP\Presentation\PdfSignatureValidatorBuilder;
+use SignerPHP\PdfSigner\Application\Contract\PdfSignatureValidationEngineInterface;
+use SignerPHP\PdfSigner\Application\DTO\BrazilPolicyLpaUrlsDto;
+use SignerPHP\PdfSigner\Application\DTO\BrazilTrustAnchorsOptionsDto;
+use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureValidationResultDto;
+use SignerPHP\PdfSigner\Application\DTO\ValidatePdfRequestDto;
+use SignerPHP\PdfSigner\Application\Service\PdfSignatureValidationService;
+use SignerPHP\PdfSigner\Domain\Exception\SignerException;
+use SignerPHP\PdfSigner\Presentation\PdfSignatureValidatorBuilder;
 
 final class PdfSignatureValidatorBuilderTest extends TestCase
 {

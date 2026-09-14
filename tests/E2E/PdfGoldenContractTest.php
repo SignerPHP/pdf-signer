@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\E2E;
+namespace SignerPHP\PdfSigner\Tests\E2E;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Application\DTO\SignatureActorDto;
-use SignerPHP\Application\DTO\SignatureMetadataDto;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfSigner\Application\DTO\SignatureActorDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureMetadataDto;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 final class PdfGoldenContractTest extends TestCase
 {

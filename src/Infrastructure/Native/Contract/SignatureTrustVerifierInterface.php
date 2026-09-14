@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\Contract;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Contract;
 
-use SignerPHP\Application\DTO\SignatureValidationOptionsDto;
-use SignerPHP\Infrastructure\Native\ValueObject\SignatureTrustVerification;
+use SignerPHP\PdfSigner\Application\DTO\SignatureValidationOptionsDto;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignatureTrustVerification;
 
 interface SignatureTrustVerifierInterface
 {

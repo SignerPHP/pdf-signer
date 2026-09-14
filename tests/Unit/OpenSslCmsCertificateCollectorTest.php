@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\Infrastructure\Native\Service\NativeFunctionOverrideState;
-use SignerPHP\Infrastructure\Native\Service\OpenSslCmsCertificateCollector;
-use SignerPHP\Infrastructure\Native\ValueObject\ProcessResult;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslCmsCertificateCollector;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
 
 final class OpenSslCmsCertificateCollectorTest extends TestCase
 {

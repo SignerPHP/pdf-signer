@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Domain\Exception\SignProcessException;
-use SignerPHP\Infrastructure\Native\Service\NativeFunctionOverrideState;
-use SignerPHP\Infrastructure\Native\Service\Pkcs7Signer;
-use SignerPHP\Infrastructure\PdfCore\Buffer;
-use SignerPHP\Infrastructure\PdfCore\Signature;
+use SignerPHP\PdfCore\Buffer;
+use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Pkcs7Signer;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final class Pkcs7SignerTest extends TestCase
 {

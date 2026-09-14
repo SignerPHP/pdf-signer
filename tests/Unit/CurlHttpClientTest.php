@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Infrastructure\Native\Service\CurlHttpClient;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\CurlHttpClient;
 
 final class CurlHttpClientTest extends TestCase
 {

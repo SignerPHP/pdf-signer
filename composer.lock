@@ -4,8 +4,58 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "ddad257fee112f9e012d6a59eaeba204",
-    "packages": [],
+    "content-hash": "46033f2eacc414e4db25e8b86d053da0",
+    "packages": [
+        {
+            "name": "signerphp/pdf-core",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../pdf-core",
+                "reference": "ed594fa386debba26b4fd287e5259ae7493f4690"
+            },
+            "require": {
+                "ext-ctype": "*",
+                "ext-fileinfo": "*",
+                "ext-zlib": "*",
+                "php": "^8.2"
+            },
+            "require-dev": {
+                "laravel/pint": "^1.20",
+                "pestphp/pest": "^3.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "SignerPHP\\PdfCore\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "SignerPHP\\PdfCore\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "tests": [
+                    "vendor/bin/pest --configuration phpunit.xml tests"
+                ],
+                "pint:check": [
+                    "vendor/bin/pint --test"
+                ],
+                "pint:fix": [
+                    "vendor/bin/pint"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "description": "Standalone PDF parsing, manipulation and incremental serialization library",
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        }
+    ],
     "packages-dev": [
         {
             "name": "amphp/amp",

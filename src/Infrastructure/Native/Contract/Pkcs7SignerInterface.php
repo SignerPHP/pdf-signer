@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\Contract;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Contract;
 
-use SignerPHP\Infrastructure\PdfCore\Buffer;
-use SignerPHP\Infrastructure\PdfCore\Signature;
+use SignerPHP\PdfCore\Buffer;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 interface Pkcs7SignerInterface
 {

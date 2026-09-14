@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\PdfCore\Service;
+namespace SignerPHP\PdfSigner\Infrastructure\PdfCore\Service;
 
-use SignerPHP\Infrastructure\PdfCore\Contract\SignatureRuntimeInterface;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Contract\SignatureRuntimeInterface;
 
 final class NativeSignatureRuntime implements SignatureRuntimeInterface
 {

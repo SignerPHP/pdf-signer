@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\Service;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
-use SignerPHP\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\Infrastructure\Native\ValueObject\HttpResponse;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
 
 final class CurlHttpClient implements HttpClientInterface
 {

@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Application\Service;
+namespace SignerPHP\PdfSigner\Application\Service;
 
-use SignerPHP\Application\Contract\CertificateValidatorInterface;
-use SignerPHP\Application\Contract\PdfSigningEngineInterface;
-use SignerPHP\Application\DTO\SigningContextDto;
-use SignerPHP\Application\DTO\SignPdfRequestDto;
+use SignerPHP\PdfSigner\Application\Contract\CertificateValidatorInterface;
+use SignerPHP\PdfSigner\Application\Contract\PdfSigningEngineInterface;
+use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
+use SignerPHP\PdfSigner\Application\DTO\SignPdfRequestDto;
 
 final readonly class PdfSigningService
 {

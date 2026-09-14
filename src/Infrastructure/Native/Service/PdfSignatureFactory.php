@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\Service;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
-use SignerPHP\Application\DTO\SignatureAppearanceDto;
-use SignerPHP\Application\DTO\SignatureProfile;
-use SignerPHP\Application\DTO\SigningContextDto;
-use SignerPHP\Infrastructure\Native\Contract\DefaultSignatureAppearanceProviderInterface;
-use SignerPHP\Infrastructure\Native\Contract\SignatureFactoryInterface;
-use SignerPHP\Infrastructure\PdfCore\Metadata;
-use SignerPHP\Infrastructure\PdfCore\PdfDocument;
-use SignerPHP\Infrastructure\PdfCore\Signature;
-use SignerPHP\Infrastructure\PdfCore\SignatureAppearance;
-use SignerPHP\Infrastructure\PdfCore\SignatureObject;
+use SignerPHP\PdfCore\Metadata;
+use SignerPHP\PdfCore\PdfDocument;
+use SignerPHP\PdfCore\SignatureAppearance;
+use SignerPHP\PdfCore\SignatureObject;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
+use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DefaultSignatureAppearanceProviderInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureFactoryInterface;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final class PdfSignatureFactory implements SignatureFactoryInterface
 {

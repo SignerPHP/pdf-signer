@@ -1,5 +1,5 @@
 {
-    "name": "jeidison/signer-php",
+    "name": "signerphp/pdf-signer",
     "description": "Open-source PHP library for PDF digital signing with multiple signatures, RFC3161 timestamping, PAdES profiles, and PDF protection",
     "type": "library",
     "keywords": [
@@ -14,6 +14,7 @@
         "docmdp",
         "icp-brasil"
     ],
+    "homepage": "https://github.com/SignerPHP/pdf-signer",
     "bin": [
         "bin/signer-sign",
         "bin/signer-inspect",
@@ -24,7 +25,8 @@
         "ext-openssl": "*",
         "ext-curl": "*",
         "ext-zlib": "*",
-        "ext-fileinfo": "*"
+        "ext-fileinfo": "*",
+        "signerphp/pdf-core": "^0.1"
     },
     "require-dev": {
         "pestphp/pest": "^3.0",
@@ -35,15 +37,21 @@
         "infection/infection": "^0.29",
         "roave/security-advisories": "dev-latest"
     },
+    "replace": {
+        "jeidison/signer-php": "self.version"
+    },
     "license": "MIT",
     "autoload": {
         "psr-4": {
-            "SignerPHP\\": "src/"
-        }
+            "SignerPHP\\PdfSigner\\": "src/"
+        },
+        "files": [
+            "src/Compatibility/aliases.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {
-            "SignerPHP\\Tests\\": "tests/"
+            "SignerPHP\\PdfSigner\\Tests\\": "tests/"
         }
     },
     "authors": [
@@ -52,6 +60,7 @@
         }
     ],
     "minimum-stability": "dev",
+    "prefer-stable": true,
     "scripts": {
         "tests": "vendor/bin/pest --configuration phpunit.xml tests",
         "tests:coverage": "vendor/bin/pest --configuration phpunit.xml tests --coverage --min=98.5",
@@ -75,5 +84,17 @@
             "pestphp/pest-plugin": true,
             "infection/extension-installer": true
         }
-    }
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../pdf-core",
+            "options": {
+                "symlink": true,
+                "versions": {
+                    "signerphp/pdf-core": "0.1.0"
+                }
+            }
+        }
+    ]
 }

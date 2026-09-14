@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\PdfCore\Contract;
+namespace SignerPHP\PdfSigner\Infrastructure\PdfCore\Contract;
 
 interface SignatureRuntimeInterface
 {

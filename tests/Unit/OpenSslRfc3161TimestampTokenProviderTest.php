@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Application\DTO\TimestampOptionsDto;
-use SignerPHP\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\Infrastructure\Native\Service\NativeFunctionOverrideState;
-use SignerPHP\Infrastructure\Native\Service\OpenSslRfc3161TimestampTokenProvider;
-use SignerPHP\Infrastructure\Native\ValueObject\HttpResponse;
-use SignerPHP\Infrastructure\Native\ValueObject\ProcessResult;
+use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslRfc3161TimestampTokenProvider;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
 
 final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
 {

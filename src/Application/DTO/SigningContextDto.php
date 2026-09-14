@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Application\DTO;
+namespace SignerPHP\PdfSigner\Application\DTO;
 
-use SignerPHP\Domain\ValueObject\VerifiedCertificate;
+use SignerPHP\PdfSigner\Domain\ValueObject\VerifiedCertificate;
 
 final readonly class SigningContextDto
 {

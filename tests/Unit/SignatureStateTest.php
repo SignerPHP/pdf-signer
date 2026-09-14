@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Infrastructure\PdfCore\PdfDocument;
-use SignerPHP\Infrastructure\PdfCore\Signature;
+use SignerPHP\PdfCore\PdfDocument;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final class SignatureStateTest extends TestCase
 {

@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\Service;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
-use SignerPHP\Application\DTO\SignatureValidationOptionsDto;
-use SignerPHP\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\Infrastructure\Native\Contract\SignatureCertificateCollectorInterface;
-use SignerPHP\Infrastructure\Native\Contract\SignatureTrustVerifierInterface;
-use SignerPHP\Infrastructure\Native\ValueObject\SignatureTrustVerification;
+use SignerPHP\PdfSigner\Application\DTO\SignatureValidationOptionsDto;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCertificateCollectorInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureTrustVerifierInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignatureTrustVerification;
 
 final readonly class OpenSslSignatureTrustVerifier implements SignatureTrustVerifierInterface
 {

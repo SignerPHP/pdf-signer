@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Infrastructure\Native\Service\PdfSignatureExtractor;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureExtractor;
 
 final class PdfSignatureExtractorTest extends TestCase
 {

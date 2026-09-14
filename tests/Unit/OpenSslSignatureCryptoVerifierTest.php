@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\Infrastructure\Native\Service\OpenSslSignatureCryptoVerifier;
-use SignerPHP\Infrastructure\Native\ValueObject\ProcessResult;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslSignatureCryptoVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
 
 final class OpenSslSignatureCryptoVerifierTest extends TestCase
 {

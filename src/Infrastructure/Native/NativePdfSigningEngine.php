@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native;
+namespace SignerPHP\PdfSigner\Infrastructure\Native;
 
-use SignerPHP\Application\Contract\PdfSigningEngineInterface;
-use SignerPHP\Application\DTO\SigningContextDto;
-use SignerPHP\Domain\Exception\SignProcessException;
-use SignerPHP\Infrastructure\Native\Contract\PdfDocumentPreparerInterface;
-use SignerPHP\Infrastructure\Native\Contract\SignatureFactoryInterface;
-use SignerPHP\Infrastructure\Native\Contract\SignedBufferBuilderInterface;
-use SignerPHP\Infrastructure\Native\Service\PdfDocumentPreparer;
-use SignerPHP\Infrastructure\Native\Service\PdfSignatureFactory;
-use SignerPHP\Infrastructure\Native\Service\Pkcs7Signer;
-use SignerPHP\Infrastructure\Native\Service\SignedBufferBuilder;
-use SignerPHP\Infrastructure\Native\Service\XrefContentResolver;
+use SignerPHP\PdfSigner\Application\Contract\PdfSigningEngineInterface;
+use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
+use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PdfDocumentPreparerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureFactoryInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignedBufferBuilderInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfDocumentPreparer;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureFactory;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Pkcs7Signer;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignedBufferBuilder;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\XrefContentResolver;
 
 final readonly class NativePdfSigningEngine implements PdfSigningEngineInterface
 {

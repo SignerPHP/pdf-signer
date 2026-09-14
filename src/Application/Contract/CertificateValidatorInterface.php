@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Application\Contract;
+namespace SignerPHP\PdfSigner\Application\Contract;
 
-use SignerPHP\Application\DTO\CertificateCredentialsDto;
-use SignerPHP\Domain\ValueObject\VerifiedCertificate;
+use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
+use SignerPHP\PdfSigner\Domain\ValueObject\VerifiedCertificate;
 
 interface CertificateValidatorInterface
 {

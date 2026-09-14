@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\Contract;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Contract;
 
-use SignerPHP\Application\DTO\SigningContextDto;
-use SignerPHP\Infrastructure\PdfCore\Buffer;
-use SignerPHP\Infrastructure\PdfCore\PdfDocument;
-use SignerPHP\Infrastructure\PdfCore\Signature;
+use SignerPHP\PdfCore\Buffer;
+use SignerPHP\PdfCore\PdfDocument;
+use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 interface SignedBufferBuilderInterface
 {

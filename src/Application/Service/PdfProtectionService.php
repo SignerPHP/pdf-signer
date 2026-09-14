@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Application\Service;
+namespace SignerPHP\PdfSigner\Application\Service;
 
-use SignerPHP\Application\Contract\PdfProtectionEngineInterface;
-use SignerPHP\Application\DTO\ProtectPdfRequestDto;
+use SignerPHP\PdfSigner\Application\Contract\PdfProtectionEngineInterface;
+use SignerPHP\PdfSigner\Application\DTO\ProtectPdfRequestDto;
 
 final readonly class PdfProtectionService
 {

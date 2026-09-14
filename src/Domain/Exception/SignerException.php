@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Domain\Exception;
+namespace SignerPHP\PdfSigner\Domain\Exception;
 
 use RuntimeException;
 

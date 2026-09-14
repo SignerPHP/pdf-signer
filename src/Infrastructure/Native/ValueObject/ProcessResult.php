@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\ValueObject;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\ValueObject;
 
 final readonly class ProcessResult
 {

@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\Service;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
-use SignerPHP\Application\DTO\TimestampOptionsDto;
-use SignerPHP\Domain\Exception\SignProcessException;
-use SignerPHP\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
-use SignerPHP\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
-use SignerPHP\Infrastructure\PdfCore\Buffer;
-use SignerPHP\Infrastructure\PdfCore\PdfValue\PDFValueHexString;
-use SignerPHP\Infrastructure\PdfCore\PdfValue\PDFValueSimple;
-use SignerPHP\Infrastructure\PdfCore\Service\DocumentTimestampObjectAssembler;
-use SignerPHP\Infrastructure\PdfCore\Signature;
-use SignerPHP\Infrastructure\PdfCore\Xref\Xref;
+use SignerPHP\PdfCore\Buffer;
+use SignerPHP\PdfCore\PdfValue\PDFValueHexString;
+use SignerPHP\PdfCore\PdfValue\PDFValueSimple;
+use SignerPHP\PdfCore\Service\DocumentTimestampObjectAssembler;
+use SignerPHP\PdfCore\Xref\Xref;
+use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
+use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final readonly class DocumentTimestampApplier implements DocumentTimestampApplierInterface
 {

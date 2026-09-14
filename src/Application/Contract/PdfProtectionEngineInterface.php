@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Application\Contract;
+namespace SignerPHP\PdfSigner\Application\Contract;
 
-use SignerPHP\Application\DTO\ProtectPdfRequestDto;
+use SignerPHP\PdfSigner\Application\DTO\ProtectPdfRequestDto;
 
 interface PdfProtectionEngineInterface
 {

@@ -2,14 +2,18 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\PdfCore;
+namespace SignerPHP\PdfSigner\Infrastructure\PdfCore;
 
-use DateTime;
-use SignerPHP\Infrastructure\PdfCore\Exception\PdfCoreSigningException;
-use SignerPHP\Infrastructure\PdfCore\Exception\PdfCoreStructureException;
-use SignerPHP\Infrastructure\PdfCore\PdfValue\PDFValueHexString;
-use SignerPHP\Infrastructure\PdfCore\PdfValue\PDFValueSimple;
-use SignerPHP\Infrastructure\PdfCore\Xref\Xref;
+use SignerPHP\PdfCore\Buffer;
+use SignerPHP\PdfCore\Exception\PdfCoreStructureException;
+use SignerPHP\PdfCore\Metadata;
+use SignerPHP\PdfCore\PdfDocument;
+use SignerPHP\PdfCore\PdfValue\PDFValueHexString;
+use SignerPHP\PdfCore\PdfValue\PDFValueSimple;
+use SignerPHP\PdfCore\SignatureAppearance;
+use SignerPHP\PdfCore\Struct;
+use SignerPHP\PdfCore\Xref\Xref;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Exception\PdfCoreSigningException;
 
 /**
  * @author Jeidison Farias <jeidison.farias@gmail.com>
@@ -158,56 +162,7 @@ class Signer
         $objOffSets[$signature->getOid()] = $docToXref->size();
         $xrefOffset += strlen($signature->toPdfEntry());
 
-        $docVersionString = str_replace('PDF-', '', $pdfDocument->getPdfVersion());
-
-        $targetVersion = $pdfDocument->getXrefTableVersion();
-        if ($pdfDocument->getXrefTableVersion() >= '1.5') {
-            if ($docVersionString > $targetVersion) {
-                $targetVersion = $docVersionString;
-            }
-        } elseif ($docVersionString < $targetVersion) {
-            $targetVersion = $docVersionString;
-        }
-
-        if ($targetVersion >= '1.5') {
-            $trailer = $pdfDocument->createObject(clone $pdfDocument->getTrailerObject());
-
-            $objOffSets[$trailer->getOid()] = $xrefOffset;
-
-            $xref = Xref::new()->buildXref15($objOffSets);
-
-            $trailer['Index'] = explode(' ', (string) $xref['Index']);
-            $trailer['W'] = $xref['W'];
-            $trailer['Size'] = $pdfDocument->getMaxOid() + 1;
-            $trailer['Type'] = '/XRef';
-
-            $ID2 = md5(''.(new DateTime)->getTimestamp().'-'.$pdfDocument->getXrefPosition().$pdfDocument->getTrailerObject());
-            $currentId = $trailer['ID'][0] ?? new PDFValueHexString(strtoupper(md5((string) $pdfDocument->getTrailerObject())));
-            $trailer['ID'] = [$currentId, new PDFValueHexString(strtoupper($ID2))];
-
-            if (isset($trailer['DecodeParms'])) {
-                unset($trailer['DecodeParms']);
-            }
-
-            if (isset($trailer['Filter'])) {
-                unset($trailer['Filter']);
-            }
-
-            $trailer->setStream($xref['stream'], false);
-            $trailer['Prev'] = $pdfDocument->getXrefPosition();
-
-            $docFromXref = new Buffer($trailer->toPdfEntry());
-            $docFromXref->data('startxref'.PHP_EOL.$xrefOffset.PHP_EOL.'%%EOF'.PHP_EOL);
-        } else {
-            $xrefContent = Xref::new()->buildXref($objOffSets);
-
-            $pdfDocument->getTrailerObject()['Size'] = $pdfDocument->getMaxOid() + 1;
-            $pdfDocument->getTrailerObject()['Prev'] = $pdfDocument->getXrefPosition();
-
-            $docFromXref = new Buffer($xrefContent);
-            $docFromXref->data("trailer\n".$pdfDocument->getTrailerObject());
-            $docFromXref->data("\nstartxref\n{$xrefOffset}\n%%EOF\n");
-        }
+        $docFromXref = (new \SignerPHP\PdfCore\Service\XrefContentResolver)->resolve($pdfDocument, $objOffSets, $xrefOffset);
 
         $signature->withSizes($docToXref->size(), $docFromXref->size());
         $signature['Contents'] = new PDFValueSimple('');

@@ -2,28 +2,28 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Application\Contract\CertificateValidatorInterface;
-use SignerPHP\Application\Contract\DefaultTimestampOptionsProviderInterface;
-use SignerPHP\Application\Contract\PdfProtectionEngineInterface;
-use SignerPHP\Application\Contract\PdfSigningEngineInterface;
-use SignerPHP\Application\DTO\BrazilSignaturePolicyOptionsDto;
-use SignerPHP\Application\DTO\CertificateCredentialsDto;
-use SignerPHP\Application\DTO\CertificationLevel;
-use SignerPHP\Application\DTO\ProtectionOptionsDto;
-use SignerPHP\Application\DTO\ProtectPdfRequestDto;
-use SignerPHP\Application\DTO\SignatureAppearanceDto;
-use SignerPHP\Application\DTO\SignatureMetadataDto;
-use SignerPHP\Application\DTO\SignatureProfile;
-use SignerPHP\Application\DTO\SigningContextDto;
-use SignerPHP\Application\DTO\TimestampOptionsDto;
-use SignerPHP\Application\Service\PdfProtectionService;
-use SignerPHP\Application\Service\PdfSigningService;
-use SignerPHP\Domain\Exception\SignerException;
-use SignerPHP\Domain\ValueObject\VerifiedCertificate;
-use SignerPHP\Presentation\SignerBuilder;
+use SignerPHP\PdfSigner\Application\Contract\CertificateValidatorInterface;
+use SignerPHP\PdfSigner\Application\Contract\DefaultTimestampOptionsProviderInterface;
+use SignerPHP\PdfSigner\Application\Contract\PdfProtectionEngineInterface;
+use SignerPHP\PdfSigner\Application\Contract\PdfSigningEngineInterface;
+use SignerPHP\PdfSigner\Application\DTO\BrazilSignaturePolicyOptionsDto;
+use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
+use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
+use SignerPHP\PdfSigner\Application\DTO\ProtectionOptionsDto;
+use SignerPHP\PdfSigner\Application\DTO\ProtectPdfRequestDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureMetadataDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
+use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
+use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
+use SignerPHP\PdfSigner\Application\Service\PdfProtectionService;
+use SignerPHP\PdfSigner\Application\Service\PdfSigningService;
+use SignerPHP\PdfSigner\Domain\Exception\SignerException;
+use SignerPHP\PdfSigner\Domain\ValueObject\VerifiedCertificate;
+use SignerPHP\PdfSigner\Presentation\SignerBuilder;
 
 final class SignerBuilderTest extends TestCase
 {

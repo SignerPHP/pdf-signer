@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native;
+namespace SignerPHP\PdfSigner\Infrastructure\Native;
 
-use SignerPHP\Application\Contract\PdfProtectionEngineInterface;
-use SignerPHP\Application\DTO\ProtectPdfRequestDto;
-use SignerPHP\Domain\Exception\ProtectionProcessException;
-use SignerPHP\Infrastructure\Native\Contract\PdfProtectionApplierInterface;
-use SignerPHP\Infrastructure\Native\Service\QpdfPdfProtectionApplier;
+use SignerPHP\PdfSigner\Application\Contract\PdfProtectionEngineInterface;
+use SignerPHP\PdfSigner\Application\DTO\ProtectPdfRequestDto;
+use SignerPHP\PdfSigner\Domain\Exception\ProtectionProcessException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PdfProtectionApplierInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\QpdfPdfProtectionApplier;
 
 final readonly class NativePdfProtectionEngine implements PdfProtectionEngineInterface
 {

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\Contract;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Contract;
 
-use SignerPHP\Infrastructure\Native\ValueObject\ExtractedPdfSignature;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ExtractedPdfSignature;
 
 interface PdfSignatureExtractorInterface
 {

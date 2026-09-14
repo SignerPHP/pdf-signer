@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
-use SignerPHP\Application\DTO\PdfContentDto;
-use SignerPHP\Application\DTO\ProtectionOptionsDto;
-use SignerPHP\Application\DTO\ProtectPdfRequestDto;
-use SignerPHP\Domain\Exception\ProtectionProcessException;
-use SignerPHP\Infrastructure\Native\Contract\PdfProtectionApplierInterface;
-use SignerPHP\Infrastructure\Native\NativePdfProtectionEngine;
+use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
+use SignerPHP\PdfSigner\Application\DTO\ProtectionOptionsDto;
+use SignerPHP\PdfSigner\Application\DTO\ProtectPdfRequestDto;
+use SignerPHP\PdfSigner\Domain\Exception\ProtectionProcessException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PdfProtectionApplierInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\NativePdfProtectionEngine;
 
 final class NativePdfProtectionEngineTest extends TestCase
 {

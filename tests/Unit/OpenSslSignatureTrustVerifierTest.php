@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Application\DTO\SignatureValidationOptionsDto;
-use SignerPHP\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\Infrastructure\Native\Contract\SignatureCertificateCollectorInterface;
-use SignerPHP\Infrastructure\Native\Service\IcpBrasilTrustAnchorBundleProvider;
-use SignerPHP\Infrastructure\Native\Service\NativeFunctionOverrideState;
-use SignerPHP\Infrastructure\Native\Service\OpenSslSignatureTrustVerifier;
-use SignerPHP\Infrastructure\Native\ValueObject\HttpResponse;
-use SignerPHP\Infrastructure\Native\ValueObject\ProcessResult;
+use SignerPHP\PdfSigner\Application\DTO\SignatureValidationOptionsDto;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCertificateCollectorInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\IcpBrasilTrustAnchorBundleProvider;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslSignatureTrustVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
 
 final class OpenSslSignatureTrustVerifierTest extends TestCase
 {

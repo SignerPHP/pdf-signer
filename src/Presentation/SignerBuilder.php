@@ -2,25 +2,25 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Presentation;
+namespace SignerPHP\PdfSigner\Presentation;
 
-use SignerPHP\Application\Contract\DefaultTimestampOptionsProviderInterface;
-use SignerPHP\Application\DTO\BrazilSignaturePolicyOptionsDto;
-use SignerPHP\Application\DTO\CertificateCredentialsDto;
-use SignerPHP\Application\DTO\CertificationLevel;
-use SignerPHP\Application\DTO\PdfContentDto;
-use SignerPHP\Application\DTO\ProtectionOptionsDto;
-use SignerPHP\Application\DTO\ProtectPdfRequestDto;
-use SignerPHP\Application\DTO\SignatureAppearanceDto;
-use SignerPHP\Application\DTO\SignatureMetadataDto;
-use SignerPHP\Application\DTO\SignatureProfile;
-use SignerPHP\Application\DTO\SigningOptionsDto;
-use SignerPHP\Application\DTO\SignPdfRequestDto;
-use SignerPHP\Application\DTO\TimestampOptionsDto;
-use SignerPHP\Application\Service\PdfProtectionService;
-use SignerPHP\Application\Service\PdfSigningService;
-use SignerPHP\Domain\Exception\SignerException;
-use SignerPHP\Infrastructure\Native\Service\DefaultTimestampOptionsProvider;
+use SignerPHP\PdfSigner\Application\Contract\DefaultTimestampOptionsProviderInterface;
+use SignerPHP\PdfSigner\Application\DTO\BrazilSignaturePolicyOptionsDto;
+use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
+use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
+use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
+use SignerPHP\PdfSigner\Application\DTO\ProtectionOptionsDto;
+use SignerPHP\PdfSigner\Application\DTO\ProtectPdfRequestDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureMetadataDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
+use SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto;
+use SignerPHP\PdfSigner\Application\DTO\SignPdfRequestDto;
+use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
+use SignerPHP\PdfSigner\Application\Service\PdfProtectionService;
+use SignerPHP\PdfSigner\Application\Service\PdfSigningService;
+use SignerPHP\PdfSigner\Domain\Exception\SignerException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\DefaultTimestampOptionsProvider;
 
 final class SignerBuilder
 {

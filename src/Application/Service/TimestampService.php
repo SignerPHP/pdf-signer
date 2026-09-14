@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Application\Service;
+namespace SignerPHP\PdfSigner\Application\Service;
 
-use SignerPHP\Application\DTO\TimestampConnectionResultDto;
-use SignerPHP\Application\DTO\TimestampOptionsDto;
-use SignerPHP\Domain\Exception\SignProcessException;
-use SignerPHP\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
-use SignerPHP\Infrastructure\Native\Service\OpenSslRfc3161TimestampTokenProvider;
+use SignerPHP\PdfSigner\Application\DTO\TimestampConnectionResultDto;
+use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
+use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslRfc3161TimestampTokenProvider;
 
 final readonly class TimestampService
 {

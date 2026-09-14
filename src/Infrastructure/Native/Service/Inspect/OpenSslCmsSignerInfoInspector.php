@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\Service\Inspect;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Service\Inspect;
 
-use SignerPHP\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\Infrastructure\Native\Service\ShellProcessRunner;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\ShellProcessRunner;
 
 /**
  * Extracts CMS SignerInfo metadata (digest algorithm, signature algorithm,

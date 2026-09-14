@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Presentation\PdfProtectionBuilder;
-use SignerPHP\Presentation\PdfSignatureValidatorBuilder;
-use SignerPHP\Presentation\Signer;
-use SignerPHP\Presentation\SignerBuilder;
-use SignerPHP\Presentation\TimestampBuilder;
+use SignerPHP\PdfSigner\Presentation\PdfProtectionBuilder;
+use SignerPHP\PdfSigner\Presentation\PdfSignatureValidatorBuilder;
+use SignerPHP\PdfSigner\Presentation\Signer;
+use SignerPHP\PdfSigner\Presentation\SignerBuilder;
+use SignerPHP\PdfSigner\Presentation\TimestampBuilder;
 
 final class SignerFacadeTest extends TestCase
 {

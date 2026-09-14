@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\Service;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
-use SignerPHP\Domain\Exception\ProtectionProcessException;
-use SignerPHP\Infrastructure\Native\Contract\CommandExecutorInterface;
-use SignerPHP\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Domain\Exception\ProtectionProcessException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\CommandExecutorInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 
 final class ShellCommandExecutor implements CommandExecutorInterface
 {

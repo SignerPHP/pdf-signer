@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Legacy;
+namespace SignerPHP\PdfSigner\Infrastructure\Legacy;
 
-use SignerPHP\Application\Contract\CertificateValidatorInterface;
-use SignerPHP\Application\DTO\CertificateCredentialsDto;
-use SignerPHP\Domain\Exception\InvalidCertificateException;
-use SignerPHP\Domain\ValueObject\VerifiedCertificate;
+use SignerPHP\PdfSigner\Application\Contract\CertificateValidatorInterface;
+use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
+use SignerPHP\PdfSigner\Domain\Exception\InvalidCertificateException;
+use SignerPHP\PdfSigner\Domain\ValueObject\VerifiedCertificate;
 
 final class OpenSslCertificateValidator implements CertificateValidatorInterface
 {

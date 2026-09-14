@@ -3,14 +3,14 @@
 
 declare(strict_types=1);
 
-use SignerPHP\Infrastructure\Native\Service\Inspect\ByteRangeInspector;
-use SignerPHP\Infrastructure\Native\Service\OpenSslCmsCertificateCollector;
-use SignerPHP\Infrastructure\Native\Service\Inspect\OpenSslCmsSignerInfoInspector;
-use SignerPHP\Infrastructure\Native\Service\PdfSignatureExtractor;
-use SignerPHP\Infrastructure\Native\Service\Inspect\PdfStructureInspector;
-use SignerPHP\Infrastructure\Native\Service\Inspect\SignatureDictionaryInspector;
-use SignerPHP\Infrastructure\Native\Service\X509ExtensionUrlExtractor;
-use SignerPHP\Presentation\Signer;
+use SignerPHP\PdfCore\Service\Inspect\ByteRangeInspector;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslCmsCertificateCollector;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Inspect\OpenSslCmsSignerInfoInspector;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureExtractor;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Inspect\PdfStructureInspector;
+use SignerPHP\PdfCore\Service\Inspect\SignatureDictionaryInspector;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\X509ExtensionUrlExtractor;
+use SignerPHP\PdfSigner\Presentation\Signer;
 
 require __DIR__.'/../vendor/autoload.php';
 

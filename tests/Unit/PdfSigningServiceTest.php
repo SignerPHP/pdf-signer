@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Application\Contract\CertificateValidatorInterface;
-use SignerPHP\Application\Contract\PdfSigningEngineInterface;
-use SignerPHP\Application\DTO\CertificateCredentialsDto;
-use SignerPHP\Application\DTO\PdfContentDto;
-use SignerPHP\Application\DTO\SigningContextDto;
-use SignerPHP\Application\DTO\SigningOptionsDto;
-use SignerPHP\Application\DTO\SignPdfRequestDto;
-use SignerPHP\Application\Service\PdfSigningService;
-use SignerPHP\Domain\ValueObject\VerifiedCertificate;
+use SignerPHP\PdfSigner\Application\Contract\CertificateValidatorInterface;
+use SignerPHP\PdfSigner\Application\Contract\PdfSigningEngineInterface;
+use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
+use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
+use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
+use SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto;
+use SignerPHP\PdfSigner\Application\DTO\SignPdfRequestDto;
+use SignerPHP\PdfSigner\Application\Service\PdfSigningService;
+use SignerPHP\PdfSigner\Domain\ValueObject\VerifiedCertificate;
 
 final class PdfSigningServiceTest extends TestCase
 {

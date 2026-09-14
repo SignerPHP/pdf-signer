@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Application\DTO\TimestampOptionsDto;
-use SignerPHP\Application\Service\TimestampService;
-use SignerPHP\Domain\Exception\SignerException;
-use SignerPHP\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
-use SignerPHP\Presentation\TimestampBuilder;
+use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
+use SignerPHP\PdfSigner\Application\Service\TimestampService;
+use SignerPHP\PdfSigner\Domain\Exception\SignerException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
+use SignerPHP\PdfSigner\Presentation\TimestampBuilder;
 
 final class TimestampBuilderTest extends TestCase
 {

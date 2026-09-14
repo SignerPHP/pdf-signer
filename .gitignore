@@ -4,3 +4,4 @@ file-tests/
 .deptrac.cache
 .phpunit.result.cache
 build/
+.deps/

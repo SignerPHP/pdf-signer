@@ -2,25 +2,25 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Application\DTO\CertificateCredentialsDto;
-use SignerPHP\Application\DTO\CertificationLevel;
-use SignerPHP\Application\DTO\PdfContentDto;
-use SignerPHP\Application\DTO\SignatureAppearanceDto;
-use SignerPHP\Application\DTO\SignatureAppearanceXObjectDto;
-use SignerPHP\Application\DTO\SignatureProfile;
-use SignerPHP\Application\DTO\SigningContextDto;
-use SignerPHP\Application\DTO\SigningOptionsDto;
-use SignerPHP\Application\DTO\SignPdfRequestDto;
-use SignerPHP\Domain\ValueObject\VerifiedCertificate;
-use SignerPHP\Infrastructure\Native\Contract\DefaultSignatureAppearanceProviderInterface;
-use SignerPHP\Infrastructure\Native\Service\PdfSignatureFactory;
-use SignerPHP\Infrastructure\PdfCore\PdfDocument;
-use SignerPHP\Infrastructure\PdfCore\Signature;
-use SignerPHP\Infrastructure\PdfCore\SignatureAppearance;
-use SignerPHP\Infrastructure\PdfCore\SignatureObject;
+use SignerPHP\PdfCore\PdfDocument;
+use SignerPHP\PdfCore\SignatureAppearance;
+use SignerPHP\PdfCore\SignatureObject;
+use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
+use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
+use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceXObjectDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
+use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
+use SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto;
+use SignerPHP\PdfSigner\Application\DTO\SignPdfRequestDto;
+use SignerPHP\PdfSigner\Domain\ValueObject\VerifiedCertificate;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DefaultSignatureAppearanceProviderInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureFactory;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final class PdfSignatureFactoryTest extends TestCase
 {

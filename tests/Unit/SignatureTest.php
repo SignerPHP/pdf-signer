@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Infrastructure\PdfCore\Contract\SignatureRuntimeInterface;
-use SignerPHP\Infrastructure\PdfCore\Metadata;
-use SignerPHP\Infrastructure\PdfCore\PdfDocument;
-use SignerPHP\Infrastructure\PdfCore\PDFObject;
-use SignerPHP\Infrastructure\PdfCore\PdfValue\PDFValueList;
-use SignerPHP\Infrastructure\PdfCore\PdfValue\PDFValueObject;
-use SignerPHP\Infrastructure\PdfCore\PdfValue\PDFValueReference;
-use SignerPHP\Infrastructure\PdfCore\Signature;
-use SignerPHP\Infrastructure\PdfCore\SignatureAppearance;
-use SignerPHP\Infrastructure\PdfCore\SignatureObject;
+use SignerPHP\PdfCore\Metadata;
+use SignerPHP\PdfCore\PdfDocument;
+use SignerPHP\PdfCore\PDFObject;
+use SignerPHP\PdfCore\PdfValue\PDFValueList;
+use SignerPHP\PdfCore\PdfValue\PDFValueObject;
+use SignerPHP\PdfCore\PdfValue\PDFValueReference;
+use SignerPHP\PdfCore\SignatureAppearance;
+use SignerPHP\PdfCore\SignatureObject;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Contract\SignatureRuntimeInterface;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Signature;
 
 final class SignatureRuntimeSpy implements SignatureRuntimeInterface
 {

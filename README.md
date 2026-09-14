@@ -46,8 +46,10 @@ If you need backend PDF signing with cryptographic validity, this library provid
 Install with Composer:
 
 ```bash
-composer require jeidison/signer-php
+composer require signerphp/pdf-signer
 ```
+
+The previous package name `jeidison/signer-php` remains compatible through Composer `replace`. Public classes such as `SignerPHP\Presentation\Signer` continue to work.
 
 ## Usage
 

@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Domain\Exception\ProtectionProcessException;
-use SignerPHP\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\Infrastructure\Native\Service\ShellCommandExecutor;
-use SignerPHP\Infrastructure\Native\ValueObject\ProcessResult;
+use SignerPHP\PdfSigner\Domain\Exception\ProtectionProcessException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\ShellCommandExecutor;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
 
 final class ShellCommandExecutorTest extends TestCase
 {

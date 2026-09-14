@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Application\DTO\SignatureValidationOptionsDto;
-use SignerPHP\Domain\Exception\SignatureValidationException;
-use SignerPHP\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\Infrastructure\Native\Service\CurlHttpClient;
-use SignerPHP\Infrastructure\Native\Service\NativeFunctionOverrideState;
-use SignerPHP\Infrastructure\Native\Service\OpenSslBrazilPolicyListVerifier;
-use SignerPHP\Infrastructure\Native\Service\OpenSslSignatureCryptoVerifier;
-use SignerPHP\Infrastructure\Native\ValueObject\HttpResponse;
+use SignerPHP\PdfSigner\Application\DTO\SignatureValidationOptionsDto;
+use SignerPHP\PdfSigner\Domain\Exception\SignatureValidationException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\CurlHttpClient;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslBrazilPolicyListVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslSignatureCryptoVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
 
 final class NativeTempnamFailureCoverageTest extends TestCase
 {

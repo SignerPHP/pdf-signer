@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\Service;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
-use SignerPHP\Application\DTO\SignatureValidationOptionsDto;
-use SignerPHP\Infrastructure\Native\Contract\BrazilPolicyListVerifierInterface;
-use SignerPHP\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\Infrastructure\Native\ValueObject\SignaturePolicyVerification;
+use SignerPHP\PdfSigner\Application\DTO\SignatureValidationOptionsDto;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\BrazilPolicyListVerifierInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignaturePolicyVerification;
 
 final class OpenSslBrazilPolicyListVerifier implements BrazilPolicyListVerifierInterface
 {

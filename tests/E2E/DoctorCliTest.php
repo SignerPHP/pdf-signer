@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\E2E;
+namespace SignerPHP\PdfSigner\Tests\E2E;
 
 use PHPUnit\Framework\TestCase;
 

@@ -2,17 +2,21 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\PdfCore;
+namespace SignerPHP\PdfSigner\Infrastructure\PdfCore;
 
-use SignerPHP\Application\DTO\CertificationLevel;
-use SignerPHP\Infrastructure\PdfCore\Contract\SignatureRuntimeInterface;
-use SignerPHP\Infrastructure\PdfCore\Exception\PdfCoreSigningException;
-use SignerPHP\Infrastructure\PdfCore\Service\NativeSignatureRuntime;
-use SignerPHP\Infrastructure\PdfCore\Service\SignatureObjectAssembler;
+use SignerPHP\PdfCore\Metadata;
+use SignerPHP\PdfCore\PdfDocument;
+use SignerPHP\PdfCore\Service\SignatureObjectAssembler;
+use SignerPHP\PdfCore\SignatureAppearance;
+use SignerPHP\PdfCore\SignatureObject;
+use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Contract\SignatureRuntimeInterface;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Exception\PdfCoreSigningException;
+use SignerPHP\PdfSigner\Infrastructure\PdfCore\Service\NativeSignatureRuntime;
 
 class Signature
 {
-    const SIGNATURE_MAX_LENGTH = 262144;
+    const SIGNATURE_MAX_LENGTH = SignatureObject::SIGNATURE_MAX_LENGTH;
 
     private array $certificate = [
         'cert' => '',
@@ -104,7 +108,7 @@ class Signature
                 $this->requirePdfDocument(),
                 $this->appearance,
                 $this->requireMetadata(),
-                $this->certificationLevel,
+                $this->certificationLevel?->value,
             );
 
         return $signatureObject->withSubFilter($this->subFilter);

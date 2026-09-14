@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Application\DTO\SignatureAppearanceXObjectDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceXObjectDto;
 
 final class SignatureAppearanceXObjectDtoTest extends TestCase
 {

@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Tests\Unit;
+namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\Infrastructure\Native\Contract\PdfSignatureExtractorInterface;
-use SignerPHP\Infrastructure\Native\Contract\SignatureCertificateCollectorInterface;
-use SignerPHP\Infrastructure\Native\Contract\SignatureRevocationEvidenceCollectorInterface;
-use SignerPHP\Infrastructure\Native\Service\DocumentLongTermValidationApplier;
-use SignerPHP\Infrastructure\Native\ValueObject\ExtractedPdfSignature;
-use SignerPHP\Infrastructure\PdfCore\PdfValue\PDFValueList;
-use SignerPHP\Infrastructure\PdfCore\PdfValue\PDFValueReference;
-use SignerPHP\Tests\Support\PdfFixtureFactory;
+use SignerPHP\PdfCore\PdfValue\PDFValueList;
+use SignerPHP\PdfCore\PdfValue\PDFValueReference;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PdfSignatureExtractorInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCertificateCollectorInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureRevocationEvidenceCollectorInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\DocumentLongTermValidationApplier;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ExtractedPdfSignature;
+use SignerPHP\PdfSigner\Tests\Support\PdfFixtureFactory;
 
 final class DocumentLongTermValidationApplierTest extends TestCase
 {

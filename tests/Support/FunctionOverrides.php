@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Infrastructure\Native\Service;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
 final class NativeFunctionOverrideState
 {
@@ -49,9 +49,9 @@ function is_file(string $filename): bool
     return \is_file($filename);
 }
 
-namespace SignerPHP\Infrastructure\Native\Service\Inspect;
+namespace SignerPHP\PdfSigner\Infrastructure\Native\Service\Inspect;
 
-use SignerPHP\Infrastructure\Native\Service\NativeFunctionOverrideState;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
 
 function tempnam(string $directory, string $prefix): string|false
 {
@@ -68,7 +68,7 @@ function tempnam(string $directory, string $prefix): string|false
     return \tempnam($directory, $prefix);
 }
 
-namespace SignerPHP\Infrastructure\Legacy;
+namespace SignerPHP\PdfSigner\Infrastructure\Legacy;
 
 final class LegacyFunctionOverrideState
 {

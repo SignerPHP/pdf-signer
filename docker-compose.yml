@@ -12,6 +12,7 @@ services:
       XDEBUG_CONFIG: "client_host=host.docker.internal"
     volumes:
       - .:/app:delegated
+      - ../pdf-core:/pdf-core:delegated
     networks:
       - kool_local
       - kool_global

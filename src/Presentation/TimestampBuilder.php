@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace SignerPHP\Presentation;
+namespace SignerPHP\PdfSigner\Presentation;
 
-use SignerPHP\Application\DTO\TimestampConnectionResultDto;
-use SignerPHP\Application\DTO\TimestampOptionsDto;
-use SignerPHP\Application\Service\TimestampService;
-use SignerPHP\Domain\Exception\SignerException;
+use SignerPHP\PdfSigner\Application\DTO\TimestampConnectionResultDto;
+use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
+use SignerPHP\PdfSigner\Application\Service\TimestampService;
+use SignerPHP\PdfSigner\Domain\Exception\SignerException;
 
 final class TimestampBuilder
 {
