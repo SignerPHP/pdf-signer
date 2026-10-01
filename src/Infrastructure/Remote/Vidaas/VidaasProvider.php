@@ -7,7 +7,9 @@ namespace SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas;
 use SignerPHP\PdfSigner\Application\DTO\ExternalSigningPayload;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignatureEncoding;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
+use SignerPHP\PdfSigner\Application\DTO\SigningInputType;
 use SignerPHP\PdfSigner\Domain\Exception\SignerException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
 
@@ -70,7 +72,12 @@ final readonly class VidaasProvider
 
     public function sign(ExternalSigningPayload $payload, string $certificateAlias): SignatureValue
     {
-        if ($payload->digestAlgorithm !== HashAlgorithm::Sha256 || $payload->signatureAlgorithm !== SignatureAlgorithm::RsaPkcs1V15) {
+        if (
+            $payload->inputType !== SigningInputType::Digest
+            || $payload->digestAlgorithm !== HashAlgorithm::Sha256
+            || $payload->signatureAlgorithm !== SignatureAlgorithm::RsaPkcs1V15
+            || $payload->signatureEncoding !== SignatureEncoding::RsaPkcs1
+        ) {
             throw new SignerException('VIDaaS RAW signing currently requires SHA-256 with RSA PKCS#1 v1.5.');
         }
 
@@ -78,8 +85,8 @@ final readonly class VidaasProvider
             throw new SignerException('VIDaaS certificate alias cannot be empty.');
         }
 
-        $digest = base64_decode($payload->digestBase64, true);
-        if (! is_string($digest) || strlen($digest) !== 32) {
+        $digest = $payload->input();
+        if (strlen($digest) !== 32) {
             throw new SignerException('VIDaaS signing payload must contain a valid SHA-256 digest.');
         }
 
@@ -89,7 +96,7 @@ final readonly class VidaasProvider
             'hashes' => [[
                 'id' => $id,
                 'alias' => 'external-signature',
-                'hash' => $payload->digestBase64,
+                'hash' => $payload->inputBase64,
                 'hash_algorithm' => '2.16.840.1.101.3.4.2.1',
                 'signature_format' => 'RAW',
                 'padding_method' => 'PKCS1V1_5',

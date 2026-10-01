@@ -5,6 +5,8 @@ declare(strict_types=1);
 use SignerPHP\PdfSigner\Application\DTO\ExternalSigningPayload;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignatureEncoding;
+use SignerPHP\PdfSigner\Application\DTO\SigningInputType;
 use SignerPHP\PdfSigner\Domain\Exception\SignerException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
@@ -133,8 +135,8 @@ it('signs a prepared PDF through the VIDaaS RAW contract', function (): void {
 it('rejects unsupported algorithms and malformed provider responses', function (): void {
     $http = callbackHttpClient(fn (): HttpResponse => new HttpResponse(200, '{"certificate_alias":"CERT-1"}'));
     $provider = new VidaasProvider('token', $http);
-    $unsupported = new ExternalSigningPayload('', '', HashAlgorithm::Sha512, SignatureAlgorithm::RsaPkcs1V15);
-    $supported = new ExternalSigningPayload('', base64_encode(random_bytes(32)), HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15);
+    $unsupported = new ExternalSigningPayload('', SigningInputType::Digest, HashAlgorithm::Sha512, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::RsaPkcs1);
+    $supported = new ExternalSigningPayload(base64_encode(random_bytes(32)), SigningInputType::Digest, HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::RsaPkcs1);
 
     expect(fn () => $provider->sign($unsupported, 'CERT-1'))
         ->toThrow(SignerException::class, 'SHA-256')
@@ -216,10 +218,10 @@ it('validates PKCE input and invalid certificate discovery responses', function 
 it('rejects invalid digests and mismatched certificate aliases', function (): void {
     $mismatch = callbackHttpClient(fn (): HttpResponse => new HttpResponse(200, '{"certificate_alias":"OTHER","signatures":[]}'));
     $provider = new VidaasProvider('token', $mismatch);
-    $invalidDigest = new ExternalSigningPayload('', '***', HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15);
-    $validDigest = new ExternalSigningPayload('', base64_encode(random_bytes(32)), HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15);
+    $invalidDigest = new ExternalSigningPayload('***', SigningInputType::Digest, HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::RsaPkcs1);
+    $validDigest = new ExternalSigningPayload(base64_encode(random_bytes(32)), SigningInputType::Digest, HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::RsaPkcs1);
 
-    expect(fn () => $provider->sign($invalidDigest, 'CERT-1'))->toThrow(SignerException::class, 'valid SHA-256')
+    expect(fn () => $provider->sign($invalidDigest, 'CERT-1'))->toThrow(InvalidArgumentException::class, 'invalid base64 input')
         ->and(fn () => $provider->sign($validDigest, 'CERT-1'))->toThrow(SignerException::class, 'unexpected certificate alias');
 });
 
