@@ -26,6 +26,11 @@ final class Signer
         return SignerBuilder::new($signingService, $protectionService);
     }
 
+    public static function externalSigner(): ExternalSignerBuilder
+    {
+        return ExternalSignerBuilder::new();
+    }
+
     public static function protection(): PdfProtectionBuilder
     {
         $service = new PdfProtectionService(new NativePdfProtectionEngine);

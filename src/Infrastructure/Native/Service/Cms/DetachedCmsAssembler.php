@@ -6,6 +6,8 @@ namespace SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms;
 
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 
@@ -28,17 +30,41 @@ final class DetachedCmsAssembler
         HashAlgorithm $algorithm = HashAlgorithm::Sha256,
         ?\DateTimeInterface $signingTime = null,
     ): string {
+        $prepared = $this->prepare($dataToSign, $certificatePem, $algorithm, $signingTime);
+        $signature = $signatureProvider->sign(new SigningPayload($prepared->signedAttributes, $algorithm));
+
+        return $this->complete($prepared, $signature);
+    }
+
+    public function prepare(
+        string $dataToSign,
+        string $certificatePem,
+        HashAlgorithm $algorithm = HashAlgorithm::Sha256,
+        ?\DateTimeInterface $signingTime = null,
+    ): PreparedDetachedCms {
         $certificate = X509Certificate::fromPem($certificatePem);
         $digest = hash($algorithm->value, $dataToSign, true);
-        $signedAttrsSet = $this->signedAttributesSet($digest, $signingTime ?? new \DateTimeImmutable('now'));
-        $signature = $signatureProvider->sign(new SigningPayload($signedAttrsSet, $algorithm));
+
+        return new PreparedDetachedCms(
+            $certificatePem,
+            $this->signedAttributesSet($digest, $signingTime ?? new \DateTimeImmutable('now')),
+            $algorithm,
+            $certificate->keyType() === 'ec' ? SignatureAlgorithm::EcdsaDer : SignatureAlgorithm::RsaPkcs1V15,
+        );
+    }
+
+    public function complete(PreparedDetachedCms $prepared, SignatureValue $signature): string
+    {
         if ($signature->bytes === '') {
             throw new SignProcessException('Signature provider returned an empty signature.');
         }
 
+        $certificate = X509Certificate::fromPem($prepared->certificatePem);
+        $algorithm = $prepared->digestAlgorithm;
+
         $digestAlgorithm = Der::algorithmIdentifier($this->digestOid($algorithm));
         $signatureAlgorithm = Der::algorithmIdentifier($this->signatureOid($algorithm, $certificate->keyType()));
-        $signedAttrsImplicit = "\xA0".substr($signedAttrsSet, 1);
+        $signedAttrsImplicit = "\xA0".substr($prepared->signedAttributes, 1);
 
         $signerInfo = Der::sequence(
             Der::tlv(0x02, "\x01")
