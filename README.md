@@ -130,6 +130,48 @@ $signedPdf = Signer::externalSigner()->complete(
 
 `completeBase64()` accepts a base64-encoded raw signature. The prepared state contains the unsigned PDF and public certificate, but never a private key. Store it with the same access controls used for the source document.
 
+#### VIDaaS cloud certificates
+
+`VidaasProvider` implements the VIDaaS OAuth, certificate discovery, and RAW signing contract. The access token authorizes use of the cloud-held private key; certificate discovery returns the public certificate and alias selected for signing.
+
+```php
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\CurlHttpClient;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasPkce;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasProvider;
+use SignerPHP\PdfSigner\Presentation\Signer;
+
+$verifier = VidaasPkce::generateVerifier();
+$authorizationUrl = VidaasProvider::authorizationUrl(
+    clientId: $clientId,
+    codeChallenge: VidaasPkce::challenge($verifier),
+    redirectUri: $callbackUrl,
+    state: $state,
+);
+
+// After the authorization callback:
+$http = new CurlHttpClient();
+$token = VidaasProvider::exchangeAuthorizationCode(
+    $http,
+    $clientId,
+    $clientSecret,
+    $authorizationCode,
+    $verifier,
+    $callbackUrl,
+);
+$vidaas = new VidaasProvider($token->value, $http);
+$certificate = $vidaas->certificates()[0];
+
+$builder = Signer::externalSigner()
+    ->withPdfContent($pdf)
+    ->withCertificate($certificate->pem)
+    ->withPadesBaselineB();
+$prepared = $builder->prepare();
+$signature = $vidaas->sign($prepared->payload, $certificate->alias);
+$signedPdf = $builder->complete($prepared->state, $signature->bytes);
+```
+
+When discovery returns more than one certificate, present the aliases to the user and pass the selected certificate and matching alias through the same flow.
+
 ### 2) Signature with metadata
 
 ```php
