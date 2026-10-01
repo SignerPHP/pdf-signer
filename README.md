@@ -136,24 +136,22 @@ $signedPdf = Signer::externalSigner()->complete(
 
 ```php
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\CurlHttpClient;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasAuthorization;
 use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasPkce;
 use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasProvider;
 use SignerPHP\PdfSigner\Presentation\Signer;
 
 $verifier = VidaasPkce::generateVerifier();
-$authorizationUrl = VidaasProvider::authorizationUrl(
-    clientId: $clientId,
+$http = new CurlHttpClient();
+$authorization = new VidaasAuthorization($http, $clientId, $clientSecret);
+$authorizationUrl = $authorization->authorizationUrl(
     codeChallenge: VidaasPkce::challenge($verifier),
     redirectUri: $callbackUrl,
     state: $state,
 );
 
 // After the authorization callback:
-$http = new CurlHttpClient();
-$token = VidaasProvider::exchangeAuthorizationCode(
-    $http,
-    $clientId,
-    $clientSecret,
+$token = $authorization->exchangeAuthorizationCode(
     $authorizationCode,
     $verifier,
     $callbackUrl,
@@ -171,6 +169,8 @@ $signedPdf = $builder->complete($prepared->state, $signature->bytes);
 ```
 
 When discovery returns more than one certificate, present the aliases to the user and pass the selected certificate and matching alias through the same flow.
+
+For mobile approval, call `startPush()` with the PKCE challenge and the certificate holder's CPF, poll `pollPush()` until its result is approved, then exchange its `authorizationToken` with `exchangeAuthorizationCode()`. A runnable example covering QR Code, push, certificate selection, and PDF signing is available in [`examples/providers/vidaas`](examples/providers/vidaas).
 
 ### 2) Signature with metadata
 

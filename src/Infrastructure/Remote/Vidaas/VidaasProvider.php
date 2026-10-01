@@ -21,8 +21,6 @@ final readonly class VidaasProvider
 
     private const SIGNATURE_PATH = '/v0/oauth/signature';
 
-    private const TOKEN_PATH = '/v0/oauth/token';
-
     public function __construct(
         private string $accessToken,
         private HttpClientInterface $httpClient,
@@ -32,80 +30,6 @@ final readonly class VidaasProvider
         if (trim($this->accessToken) === '') {
             throw new SignerException('VIDaaS access token cannot be empty.');
         }
-    }
-
-    public static function authorizationUrl(
-        string $clientId,
-        string $codeChallenge,
-        string $scope = 'signature_session',
-        ?string $redirectUri = null,
-        ?string $state = null,
-        ?string $loginHint = null,
-        int $lifetimeSeconds = 43200,
-        string $baseUrl = self::PRODUCTION_URL,
-    ): string {
-        if (trim($clientId) === '' || trim($codeChallenge) === '') {
-            throw new SignerException('VIDaaS authorization requires clientId and codeChallenge.');
-        }
-
-        $query = [
-            'response_type' => 'code',
-            'client_id' => $clientId,
-            'code_challenge' => $codeChallenge,
-            'code_challenge_method' => 'S256',
-            'scope' => $scope,
-            'lifetime' => $lifetimeSeconds,
-        ];
-        self::addOptional($query, 'redirect_uri', $redirectUri);
-        self::addOptional($query, 'state', $state);
-        self::addOptional($query, 'login_hint', $loginHint);
-
-        return rtrim($baseUrl, '/').'/v0/oauth/authorize?'.http_build_query($query);
-    }
-
-    public static function exchangeAuthorizationCode(
-        HttpClientInterface $httpClient,
-        string $clientId,
-        string $clientSecret,
-        string $code,
-        string $codeVerifier,
-        ?string $redirectUri = null,
-        string $baseUrl = self::PRODUCTION_URL,
-        int $timeoutSeconds = 20,
-    ): VidaasAccessToken {
-        foreach ([$clientId, $clientSecret, $code, $codeVerifier] as $required) {
-            if (trim($required) === '') {
-                throw new SignerException('VIDaaS token exchange requires clientId, clientSecret, code and codeVerifier.');
-            }
-        }
-
-        $form = [
-            'grant_type' => 'authorization_code',
-            'client_id' => $clientId,
-            'client_secret' => $clientSecret,
-            'code' => $code,
-            'code_verifier' => $codeVerifier,
-        ];
-        self::addOptional($form, 'redirect_uri', $redirectUri);
-        $response = $httpClient->request(
-            'POST',
-            rtrim($baseUrl, '/').self::TOKEN_PATH,
-            ['Content-Type: application/x-www-form-urlencoded', 'Accept: application/json'],
-            http_build_query($form),
-            $timeoutSeconds,
-        );
-        $json = self::successfulJson($response->statusCode, $response->body, 'token exchange');
-        $token = $json['access_token'] ?? null;
-        if (! is_string($token) || trim($token) === '') {
-            throw new SignerException('VIDaaS token response does not contain access_token.');
-        }
-
-        return new VidaasAccessToken(
-            trim($token),
-            is_string($json['token_type'] ?? null) ? $json['token_type'] : 'Bearer',
-            is_numeric($json['expires_in'] ?? null) ? (int) $json['expires_in'] : 0,
-            is_string($json['scope'] ?? null) ? $json['scope'] : null,
-        );
     }
 
     /** @return list<VidaasCertificate> */
@@ -244,13 +168,5 @@ final readonly class VidaasProvider
         }
 
         return "-----BEGIN CERTIFICATE-----\n".chunk_split(base64_encode($der), 64, "\n")."-----END CERTIFICATE-----\n";
-    }
-
-    /** @param array<string, mixed> $values */
-    private static function addOptional(array &$values, string $key, ?string $value): void
-    {
-        if ($value !== null && trim($value) !== '') {
-            $values[$key] = trim($value);
-        }
     }
 }

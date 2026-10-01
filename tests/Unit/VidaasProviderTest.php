@@ -8,6 +8,7 @@ use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
 use SignerPHP\PdfSigner\Domain\Exception\SignerException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasAuthorization;
 use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasPkce;
 use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasProvider;
 use SignerPHP\PdfSigner\Presentation\Signer;
@@ -17,13 +18,12 @@ use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
 it('builds a VIDaaS authorization URL with PKCE and optional context', function (): void {
     $verifier = VidaasPkce::generateVerifier();
     $challenge = VidaasPkce::challenge($verifier);
-    $url = VidaasProvider::authorizationUrl(
-        clientId: 'client-id',
+    $authorization = new VidaasAuthorization(callbackHttpClient(fn (): HttpResponse => new HttpResponse(200, '{}')), 'client-id', 'client-secret', VidaasProvider::SANDBOX_URL);
+    $url = $authorization->authorizationUrl(
         codeChallenge: $challenge,
         redirectUri: 'https://client.example/callback',
         state: 'state-value',
         loginHint: '11111111111',
-        baseUrl: VidaasProvider::SANDBOX_URL,
     );
 
     parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
@@ -55,15 +55,12 @@ it('exchanges an authorization code for an access token', function (): void {
         ], JSON_THROW_ON_ERROR));
     });
 
-    $token = VidaasProvider::exchangeAuthorizationCode(
+    $token = (new VidaasAuthorization(
         $http,
         'client-id',
         'client-secret',
-        'authorization-code',
-        str_repeat('a', 43),
-        'https://client.example/callback',
         VidaasProvider::SANDBOX_URL,
-    );
+    ))->exchangeAuthorizationCode('authorization-code', str_repeat('a', 43), 'https://client.example/callback');
 
     parse_str($capture->body, $form);
     expect($capture->url)->toBe(VidaasProvider::SANDBOX_URL.'/v0/oauth/token')
@@ -153,11 +150,55 @@ it('validates VIDaaS configuration and OAuth failures', function (): void {
     $invalidJson = callbackHttpClient(fn (): HttpResponse => new HttpResponse(200, 'invalid'));
 
     expect(fn () => new VidaasProvider('', $ok))->toThrow(SignerException::class, 'access token')
-        ->and(fn () => VidaasProvider::authorizationUrl('', 'challenge'))->toThrow(SignerException::class, 'authorization requires')
-        ->and(fn () => VidaasProvider::exchangeAuthorizationCode($ok, '', 'secret', 'code', 'verifier'))->toThrow(SignerException::class, 'token exchange requires')
-        ->and(fn () => VidaasProvider::exchangeAuthorizationCode($unauthorized, 'id', 'secret', 'code', 'verifier'))->toThrow(SignerException::class, 'HTTP 401')
-        ->and(fn () => VidaasProvider::exchangeAuthorizationCode($invalidJson, 'id', 'secret', 'code', 'verifier'))->toThrow(SignerException::class, 'invalid JSON')
-        ->and(fn () => VidaasProvider::exchangeAuthorizationCode($ok, 'id', 'secret', 'code', 'verifier'))->toThrow(SignerException::class, 'access_token');
+        ->and(fn () => new VidaasAuthorization($ok, '', 'secret'))->toThrow(SignerException::class, 'clientId')
+        ->and(fn () => (new VidaasAuthorization($ok, 'id', 'secret'))->authorizationUrl(''))->toThrow(SignerException::class, 'codeChallenge')
+        ->and(fn () => (new VidaasAuthorization($ok, 'id', 'secret'))->exchangeAuthorizationCode('', 'verifier'))->toThrow(SignerException::class, 'code and codeVerifier')
+        ->and(fn () => (new VidaasAuthorization($unauthorized, 'id', 'secret'))->exchangeAuthorizationCode('code', 'verifier'))->toThrow(SignerException::class, 'HTTP 401')
+        ->and(fn () => (new VidaasAuthorization($invalidJson, 'id', 'secret'))->exchangeAuthorizationCode('code', 'verifier'))->toThrow(SignerException::class, 'invalid JSON')
+        ->and(fn () => (new VidaasAuthorization($ok, 'id', 'secret'))->exchangeAuthorizationCode('code', 'verifier'))->toThrow(SignerException::class, 'access_token');
+});
+
+it('starts and polls a VIDaaS push authorization', function (): void {
+    $responses = [
+        new HttpResponse(200, 'code=push-code'),
+        new HttpResponse(304, ''),
+        new HttpResponse(200, '{"authorizationToken":"approved-code","redirectUrl":"app://approved"}'),
+    ];
+    $requests = [];
+    $http = callbackHttpClient(function (string $method, string $url) use (&$responses, &$requests): HttpResponse {
+        $requests[] = [$method, $url];
+
+        return array_shift($responses);
+    });
+    $authorization = new VidaasAuthorization($http, 'client-id', 'client-secret', VidaasProvider::SANDBOX_URL);
+
+    $started = $authorization->startPush(str_repeat('c', 43), '11111111111');
+    $pending = $authorization->pollPush($started->code);
+    $approved = $authorization->pollPush($started->code);
+
+    parse_str((string) parse_url($requests[0][1], PHP_URL_QUERY), $query);
+    expect($started->code)->toBe('push-code')
+        ->and($query['redirect_uri'])->toBe('push://')
+        ->and($query['login_hint'])->toBe('11111111111')
+        ->and($pending->approved)->toBeFalse()
+        ->and($approved->approved)->toBeTrue()
+        ->and($approved->authorizationToken)->toBe('approved-code')
+        ->and($requests[2][1])->toContain('/valid/api/v1/trusted-services/authentications?code=push-code');
+});
+
+it('validates malformed VIDaaS push responses', function (): void {
+    $failed = callbackHttpClient(fn (): HttpResponse => new HttpResponse(401, ''));
+    $missingCode = callbackHttpClient(fn (): HttpResponse => new HttpResponse(200, 'invalid'));
+    $missingToken = callbackHttpClient(fn (): HttpResponse => new HttpResponse(200, '{}'));
+
+    expect(fn () => (new VidaasAuthorization($failed, 'id', 'secret'))->startPush(str_repeat('c', 43), '11111111111'))
+        ->toThrow(SignerException::class, 'HTTP 401')
+        ->and(fn () => (new VidaasAuthorization($missingCode, 'id', 'secret'))->startPush(str_repeat('c', 43), '11111111111'))
+        ->toThrow(SignerException::class, 'does not contain code')
+        ->and(fn () => (new VidaasAuthorization($missingToken, 'id', 'secret'))->pollPush('code'))
+        ->toThrow(SignerException::class, 'authorizationToken')
+        ->and(fn () => (new VidaasAuthorization($missingToken, 'id', 'secret'))->pollPush(''))
+        ->toThrow(SignerException::class, 'requires a code');
 });
 
 it('validates PKCE input and invalid certificate discovery responses', function (): void {
