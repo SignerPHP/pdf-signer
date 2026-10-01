@@ -6,7 +6,7 @@ namespace SignerPHP\PdfSigner\Infrastructure\Native;
 
 use SignerPHP\PdfSigner\Application\Contract\PdfSigningEngineInterface;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderFactoryInterface;
-use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
+use SignerPHP\PdfSigner\Application\DTO\LocalSigningContextDto;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PdfDocumentPreparerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureFactoryInterface;
@@ -30,14 +30,15 @@ final readonly class NativePdfSigningEngine implements PdfSigningEngineInterface
         private SignatureProviderFactoryInterface $signatureProviderFactory = new LocalPrivateKeySignatureProviderFactory,
     ) {}
 
-    public function sign(SigningContextDto $context): string
+    public function sign(LocalSigningContextDto $context): string
     {
         try {
-            $pdfDocument = $this->documentPreparer->prepare($context->request->pdf->content);
-            $signature = $this->signatureFactory->create($context, $pdfDocument);
+            $signingContext = $context->signingContext;
+            $pdfDocument = $this->documentPreparer->prepare($signingContext->pdf->content);
+            $signature = $this->signatureFactory->create($signingContext, $pdfDocument);
             $signatureProvider = $this->signatureProviderFactory->create($context->verifiedCertificate);
 
-            return (string) $this->signedBufferBuilder->build($pdfDocument, $signature, $context, $signatureProvider);
+            return (string) $this->signedBufferBuilder->build($pdfDocument, $signature, $signingContext, $signatureProvider);
         } catch (\Throwable $throwable) {
             throw new SignProcessException(
                 sprintf('Could not sign PDF using native v1 engine. Root cause: %s', $throwable->getMessage()),

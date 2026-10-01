@@ -10,8 +10,10 @@ use SignerPHP\PdfCore\Xref\Xref;
 use SignerPHP\PdfSigner\Application\DTO\ExternalSigningPayload;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\PreparedExternalSignature;
+use SignerPHP\PdfSigner\Application\DTO\SignatureEncoding;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
+use SignerPHP\PdfSigner\Application\DTO\SigningInputType;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PdfDocumentPreparerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureFactoryInterface;
@@ -30,7 +32,7 @@ final readonly class ExternalPdfSigningService
 
     public function prepare(SigningContextDto $context, HashAlgorithm $algorithm = HashAlgorithm::Sha256): PreparedExternalSignature
     {
-        $pdfDocument = $this->documentPreparer->prepare($context->request->pdf->content);
+        $pdfDocument = $this->documentPreparer->prepare($context->pdf->content);
         $signatureHandler = $this->signatureFactory->create($context, $pdfDocument);
         $pdfDocument->updateModifyDate();
         $signature = $signatureHandler->generateSignatureInDocument();
@@ -44,15 +46,18 @@ final readonly class ExternalPdfSigningService
         $signature['Contents'] = new PDFValueSimple('');
 
         $unsignedPdf = $docToXref->raw().$signature->toPdfEntry().$docFromXref->raw();
-        $certificatePem = (string) ($context->verifiedCertificate->bundle['cert'] ?? '');
+        $certificatePem = $context->certificate->certificatePem;
         $preparedCms = $this->cmsAssembler->prepare($unsignedPdf, $certificatePem, $algorithm);
 
         return new PreparedExternalSignature(
             new ExternalSigningPayload(
-                base64_encode($preparedCms->signedAttributes),
                 base64_encode(hash($algorithm->value, $preparedCms->signedAttributes, true)),
+                SigningInputType::Digest,
                 $algorithm,
                 $preparedCms->signatureAlgorithm,
+                $preparedCms->signatureAlgorithm === \SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm::EcdsaDer
+                    ? SignatureEncoding::EcdsaDer
+                    : SignatureEncoding::RsaPkcs1,
             ),
             $this->encodeState($unsignedPdf, $preparedCms),
         );
@@ -103,14 +108,13 @@ final readonly class ExternalPdfSigningService
         ];
         $payload['checksum'] = hash('sha256', implode('|', $payload));
 
-        return base64_encode(json_encode($payload, JSON_THROW_ON_ERROR));
+        return json_encode($payload, JSON_THROW_ON_ERROR);
     }
 
     /** @return array{string, PreparedDetachedCms} */
     private function decodeState(string $state): array
     {
-        $json = base64_decode($state, true);
-        $payload = is_string($json) ? json_decode($json, true) : null;
+        $payload = json_decode($state, true);
         if (! is_array($payload) || ($payload['version'] ?? null) !== 1) {
             throw new SignProcessException('Invalid or unsupported external signing state.');
         }

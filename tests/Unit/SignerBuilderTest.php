@@ -12,12 +12,12 @@ use SignerPHP\PdfSigner\Application\Contract\PdfSigningEngineInterface;
 use SignerPHP\PdfSigner\Application\DTO\BrazilSignaturePolicyOptionsDto;
 use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
 use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
+use SignerPHP\PdfSigner\Application\DTO\LocalSigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\ProtectionOptionsDto;
 use SignerPHP\PdfSigner\Application\DTO\ProtectPdfRequestDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureMetadataDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
-use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Application\Service\PdfProtectionService;
 use SignerPHP\PdfSigner\Application\Service\PdfSigningService;
@@ -76,7 +76,7 @@ final class SignerBuilderTest extends TestCase
 
         $engine = new class implements PdfSigningEngineInterface
         {
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
                 return 'signed';
             }
@@ -114,11 +114,11 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->timestampUrl = $context->request->options->timestamp?->tsaUrl;
-                $this->capture->useDefaultAppearance = $context->request->options->useDefaultAppearance;
-                $this->capture->signatureProfile = $context->request->options->signatureProfile;
+                $this->capture->timestampUrl = $context->signingContext->options->timestamp?->tsaUrl;
+                $this->capture->useDefaultAppearance = $context->signingContext->options->useDefaultAppearance;
+                $this->capture->signatureProfile = $context->signingContext->options->signatureProfile;
 
                 return 'signed';
             }
@@ -155,9 +155,9 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->signatureProfile = $context->request->options->signatureProfile;
+                $this->capture->signatureProfile = $context->signingContext->options->signatureProfile;
 
                 return 'signed';
             }
@@ -192,9 +192,9 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->signatureProfile = $context->request->options->signatureProfile;
+                $this->capture->signatureProfile = $context->signingContext->options->signatureProfile;
 
                 return 'signed';
             }
@@ -230,9 +230,9 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->signatureProfile = $context->request->options->signatureProfile;
+                $this->capture->signatureProfile = $context->signingContext->options->signatureProfile;
 
                 return 'signed';
             }
@@ -268,9 +268,9 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->signatureProfile = $context->request->options->signatureProfile;
+                $this->capture->signatureProfile = $context->signingContext->options->signatureProfile;
 
                 return 'signed';
             }
@@ -306,9 +306,9 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->certificationLevel = $context->request->options->certificationLevel;
+                $this->capture->certificationLevel = $context->signingContext->options->certificationLevel;
 
                 return 'signed';
             }
@@ -358,12 +358,12 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->signatureProfile = $context->request->options->signatureProfile;
-                $this->capture->certificationLevel = $context->request->options->certificationLevel;
-                $this->capture->timestampUrl = $context->request->options->timestamp?->tsaUrl;
-                $this->capture->oauthClientId = $context->request->options->timestamp?->oauthClientId;
+                $this->capture->signatureProfile = $context->signingContext->options->signatureProfile;
+                $this->capture->certificationLevel = $context->signingContext->options->certificationLevel;
+                $this->capture->timestampUrl = $context->signingContext->options->timestamp?->tsaUrl;
+                $this->capture->oauthClientId = $context->signingContext->options->timestamp?->oauthClientId;
 
                 return 'signed';
             }
@@ -405,11 +405,11 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->timestampUrl = $context->request->options->timestamp?->tsaUrl;
-                $this->capture->oauthClientId = $context->request->options->timestamp?->oauthClientId;
-                $this->capture->oauthTokenUrl = $context->request->options->timestamp?->oauthTokenUrl;
+                $this->capture->timestampUrl = $context->signingContext->options->timestamp?->tsaUrl;
+                $this->capture->oauthClientId = $context->signingContext->options->timestamp?->oauthClientId;
+                $this->capture->oauthTokenUrl = $context->signingContext->options->timestamp?->oauthTokenUrl;
 
                 return 'signed';
             }
@@ -488,9 +488,9 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->timestampUrl = $context->request->options->timestamp?->tsaUrl;
+                $this->capture->timestampUrl = $context->signingContext->options->timestamp?->tsaUrl;
 
                 return 'signed';
             }
@@ -524,9 +524,9 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->timestampUrl = $context->request->options->timestamp?->tsaUrl;
+                $this->capture->timestampUrl = $context->signingContext->options->timestamp?->tsaUrl;
 
                 return 'signed';
             }
@@ -562,9 +562,9 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->timestampUrl = $context->request->options->timestamp?->tsaUrl;
+                $this->capture->timestampUrl = $context->signingContext->options->timestamp?->tsaUrl;
 
                 return 'signed';
             }
@@ -600,9 +600,9 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->timestampUrl = $context->request->options->timestamp?->tsaUrl;
+                $this->capture->timestampUrl = $context->signingContext->options->timestamp?->tsaUrl;
 
                 return 'signed';
             }
@@ -650,9 +650,9 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->useDefaultAppearance = $context->request->options->useDefaultAppearance;
+                $this->capture->useDefaultAppearance = $context->signingContext->options->useDefaultAppearance;
 
                 return 'signed';
             }
@@ -701,9 +701,9 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->signedInput = $context->request->pdf->content;
+                $this->capture->signedInput = $context->signingContext->pdf->content;
 
                 return 'signed-pdf';
             }
@@ -757,10 +757,10 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private object $capture) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
-                $this->capture->metadata = $context->request->options->metadata;
-                $this->capture->appearance = $context->request->options->appearance;
+                $this->capture->metadata = $context->signingContext->options->metadata;
+                $this->capture->appearance = $context->signingContext->options->appearance;
 
                 return 'signed';
             }
@@ -808,7 +808,7 @@ final class SignerBuilderTest extends TestCase
         {
             public function __construct(private readonly string $output) {}
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
                 return $this->output;
             }

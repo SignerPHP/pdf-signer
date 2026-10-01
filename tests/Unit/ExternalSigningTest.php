@@ -6,7 +6,9 @@ use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
 use SignerPHP\PdfSigner\Application\DTO\ExternalSigningPayload;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
+use SignerPHP\PdfSigner\Application\DTO\SignatureEncoding;
 use SignerPHP\PdfSigner\Application\DTO\SignatureMetadataDto;
+use SignerPHP\PdfSigner\Application\DTO\SigningInputType;
 use SignerPHP\PdfSigner\Domain\Exception\SignerException;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Presentation\ExternalSignerBuilder;
@@ -30,12 +32,12 @@ it('prepares serializable state and completes a valid external signature', funct
     $state = serialize($prepared);
     $restored = unserialize($state, ['allowed_classes' => true]);
 
-    expect($restored->payload->input)->toBe('cms-signed-attributes')
+    expect($restored->payload->inputType)->toBe(SigningInputType::Digest)
         ->and($restored->payload->signatureAlgorithm)->toBe(SignatureAlgorithm::RsaPkcs1V15)
-        ->and($restored->payload->digestBase64)->toBe(base64_encode(hash('sha256', $restored->payload->data(), true)));
+        ->and($restored->payload->signatureEncoding)->toBe(SignatureEncoding::RsaPkcs1);
 
     $signed = '';
-    expect(openssl_sign($restored->payload->data(), $signed, $bundle['pkey'], OPENSSL_ALGO_SHA256))->toBeTrue();
+    $signed = signRsaDigest($restored->payload->input(), $bundle['pkey'], 'sha256');
 
     $pdf = Signer::externalSigner()->complete($restored->state, $signed);
     $validation = Signer::validation()
@@ -56,8 +58,7 @@ it('keeps an existing signature valid when appending another one', function (): 
             ->withCertificate($bundle['cert'])
             ->withoutDefaultAppearance();
         $prepared = $builder->prepare();
-        $signature = '';
-        expect(openssl_sign($prepared->payload->data(), $signature, $bundle['pkey'], OPENSSL_ALGO_SHA256))->toBeTrue();
+        $signature = signRsaDigest($prepared->payload->input(), $bundle['pkey'], 'sha256');
 
         return $builder->complete($prepared->state, $signature);
     };
@@ -80,11 +81,9 @@ it('rejects modified prepared state', function (): void {
         ->withoutDefaultAppearance()
         ->prepare();
 
-    $decoded = base64_decode($prepared->state, true);
-    expect($decoded)->toBeString();
-    $payload = json_decode($decoded, true, flags: JSON_THROW_ON_ERROR);
+    $payload = json_decode($prepared->state, true, flags: JSON_THROW_ON_ERROR);
     $payload['digestAlgorithm'] = 'sha512';
-    $modified = base64_encode(json_encode($payload, JSON_THROW_ON_ERROR));
+    $modified = json_encode($payload, JSON_THROW_ON_ERROR);
 
     expect(fn () => Signer::externalSigner()->complete($modified, 'signature'))
         ->toThrow(\SignerPHP\PdfSigner\Domain\Exception\SignProcessException::class, 'checksum');
@@ -109,8 +108,7 @@ it('accepts external signature configuration and base64 completion', function ()
         ->withCertificationLevel(CertificationLevel::FormFillAndSignatures)
         ->withHashAlgorithm('sha384');
     $prepared = $builder->prepare();
-    $signature = '';
-    expect(openssl_sign($prepared->payload->data(), $signature, $bundle['pkey'], OPENSSL_ALGO_SHA384))->toBeTrue();
+    $signature = signRsaDigest($prepared->payload->input(), $bundle['pkey'], 'sha384');
 
     expect($builder->completeBase64($prepared->state, base64_encode($signature)))->toStartWith('%PDF-')
         ->and(fn () => $builder->completeBase64($prepared->state, '***'))
@@ -119,10 +117,33 @@ it('accepts external signature configuration and base64 completion', function ()
         ->toThrow(SignerException::class, 'one of');
 });
 
-it('rejects invalid payload and prepared state shapes', function (): void {
-    $payload = new ExternalSigningPayload('***', '', \SignerPHP\PdfSigner\Application\DTO\HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15);
+function signRsaDigest(string $digest, string $privateKeyPem, string $algorithm): string
+{
+    $digestInfoPrefix = match ($algorithm) {
+        'sha256' => hex2bin('3031300d060960864801650304020105000420'),
+        'sha384' => hex2bin('3041300d060960864801650304020205000430'),
+        default => false,
+    };
+    if (! is_string($digestInfoPrefix)) {
+        throw new InvalidArgumentException('Unsupported test digest algorithm.');
+    }
 
-    expect(fn () => $payload->data())->toThrow(\InvalidArgumentException::class)
+    $signature = '';
+    expect(openssl_private_encrypt($digestInfoPrefix.$digest, $signature, $privateKeyPem, OPENSSL_PKCS1_PADDING))->toBeTrue();
+
+    return $signature;
+}
+
+it('rejects invalid payload and prepared state shapes', function (): void {
+    $payload = new ExternalSigningPayload(
+        '***',
+        SigningInputType::Data,
+        \SignerPHP\PdfSigner\Application\DTO\HashAlgorithm::Sha256,
+        SignatureAlgorithm::RsaPkcs1V15,
+        SignatureEncoding::RsaPkcs1,
+    );
+
+    expect(fn () => $payload->input())->toThrow(\InvalidArgumentException::class)
         ->and(fn () => Signer::externalSigner()->complete('invalid', 'signature'))
         ->toThrow(SignProcessException::class, 'Invalid or unsupported');
 });
@@ -136,12 +157,12 @@ it('rejects corrupted state fields and missing byte ranges', function (): void {
         ->prepare();
 
     $rewriteState = function (callable $mutate) use ($prepared): string {
-        $payload = json_decode((string) base64_decode($prepared->state, true), true, flags: JSON_THROW_ON_ERROR);
+        $payload = json_decode($prepared->state, true, flags: JSON_THROW_ON_ERROR);
         unset($payload['checksum']);
         $payload = $mutate($payload);
         $payload['checksum'] = hash('sha256', implode('|', $payload));
 
-        return base64_encode(json_encode($payload, JSON_THROW_ON_ERROR));
+        return json_encode($payload, JSON_THROW_ON_ERROR);
     };
 
     $incomplete = $rewriteState(function (array $payload): array {

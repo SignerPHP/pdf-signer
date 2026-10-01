@@ -115,9 +115,11 @@ $prepared = Signer::externalSigner()
 // Persist $prepared->state when the external operation is asynchronous.
 // Inspect $prepared->payload for the input, encoding and algorithms required.
 $rawSignature = $externalSigner->sign(
-    $prepared->payload->data(),
+    $prepared->payload->input(),
+    $prepared->payload->inputType,
     $prepared->payload->digestAlgorithm,
     $prepared->payload->signatureAlgorithm,
+    $prepared->payload->signatureEncoding,
 );
 
 $signedPdf = Signer::externalSigner()->complete(

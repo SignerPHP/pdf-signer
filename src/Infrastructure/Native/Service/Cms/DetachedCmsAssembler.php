@@ -61,9 +61,10 @@ final class DetachedCmsAssembler
 
         $certificate = X509Certificate::fromPem($prepared->certificatePem);
         $algorithm = $prepared->digestAlgorithm;
+        $this->assertCompatibleSignatureAlgorithm($prepared->signatureAlgorithm, $certificate->keyType());
 
         $digestAlgorithm = Der::algorithmIdentifier($this->digestOid($algorithm));
-        $signatureAlgorithm = Der::algorithmIdentifier($this->signatureOid($algorithm, $certificate->keyType()));
+        $signatureAlgorithm = Der::algorithmIdentifier($this->signatureOid($prepared->signatureAlgorithm, $algorithm));
         $signedAttrsImplicit = "\xA0".substr($prepared->signedAttributes, 1);
 
         $signerInfo = Der::sequence(
@@ -121,10 +122,10 @@ final class DetachedCmsAssembler
         };
     }
 
-    private function signatureOid(HashAlgorithm $algorithm, string $keyType): string
+    private function signatureOid(SignatureAlgorithm $signatureAlgorithm, HashAlgorithm $digestAlgorithm): string
     {
-        if ($keyType === 'ec') {
-            return match ($algorithm) {
+        if ($signatureAlgorithm === SignatureAlgorithm::EcdsaDer) {
+            return match ($digestAlgorithm) {
                 HashAlgorithm::Sha1 => '1.2.840.10045.4.1',
                 HashAlgorithm::Sha224 => '1.2.840.10045.4.3.1',
                 HashAlgorithm::Sha256 => '1.2.840.10045.4.3.2',
@@ -133,12 +134,28 @@ final class DetachedCmsAssembler
             };
         }
 
-        return match ($algorithm) {
+        return match ($digestAlgorithm) {
             HashAlgorithm::Sha1 => '1.2.840.113549.1.1.5',
             HashAlgorithm::Sha224 => '1.2.840.113549.1.1.14',
             HashAlgorithm::Sha256 => '1.2.840.113549.1.1.11',
             HashAlgorithm::Sha384 => '1.2.840.113549.1.1.12',
             HashAlgorithm::Sha512 => '1.2.840.113549.1.1.13',
         };
+    }
+
+    private function assertCompatibleSignatureAlgorithm(SignatureAlgorithm $algorithm, string $keyType): void
+    {
+        $compatible = match ($algorithm) {
+            SignatureAlgorithm::EcdsaDer => $keyType === 'ec',
+            SignatureAlgorithm::RsaPkcs1V15 => $keyType === 'rsa',
+        };
+
+        if (! $compatible) {
+            throw new SignProcessException(sprintf(
+                'Prepared signature algorithm %s is not compatible with the %s certificate key.',
+                $algorithm->value,
+                $keyType,
+            ));
+        }
     }
 }

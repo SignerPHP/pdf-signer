@@ -7,11 +7,13 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\DetachedCmsAssembler;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\PreparedDetachedCms;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProvider;
 use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
 
@@ -78,6 +80,22 @@ final class DetachedCmsAssemblerTest extends TestCase
 
             self::assertNotSame('', $cms);
         }
+    }
+
+    public function test_complete_rejects_a_prepared_algorithm_that_is_incompatible_with_the_certificate(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $prepared = (new DetachedCmsAssembler)->prepare('payload', $bundle['cert']);
+
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('is not compatible with the rsa certificate key');
+
+        (new DetachedCmsAssembler)->complete(new PreparedDetachedCms(
+            $prepared->certificatePem,
+            $prepared->signedAttributes,
+            $prepared->digestAlgorithm,
+            SignatureAlgorithm::EcdsaDer,
+        ), new SignatureValue('signature'));
     }
 
     /**

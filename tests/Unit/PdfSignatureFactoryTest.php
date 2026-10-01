@@ -8,16 +8,14 @@ use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfCore\PdfDocument;
 use SignerPHP\PdfCore\SignatureAppearance;
 use SignerPHP\PdfCore\SignatureObject;
-use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
 use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
 use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceXObjectDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
+use SignerPHP\PdfSigner\Application\DTO\SigningCertificateDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto;
-use SignerPHP\PdfSigner\Application\DTO\SignPdfRequestDto;
-use SignerPHP\PdfSigner\Domain\ValueObject\VerifiedCertificate;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DefaultSignatureAppearanceProviderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureFactory;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignatureHandler;
@@ -225,15 +223,10 @@ final class PdfSignatureFactoryTest extends TestCase
 
     private function context(SigningOptionsDto $options): SigningContextDto
     {
-        $request = new SignPdfRequestDto(
-            new PdfContentDto('pdf-content'),
-            new CertificateCredentialsDto('/tmp/cert.pfx', 'pwd'),
-            $options
-        );
-
         return new SigningContextDto(
-            $request,
-            new VerifiedCertificate($request->certificate, ['validTo_time_t' => PHP_INT_MAX], ['cert' => '', 'pkey' => '', 'extracerts' => ''])
+            new PdfContentDto('pdf-content'),
+            $options,
+            new SigningCertificateDto('certificate'),
         );
     }
 

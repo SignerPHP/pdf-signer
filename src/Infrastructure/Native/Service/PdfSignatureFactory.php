@@ -24,10 +24,13 @@ final class PdfSignatureFactory implements SignatureFactoryInterface
     {
         $signature = SignatureHandler::new()
             ->withPdfDocument($pdfDocument)
-            ->withCertificate($context->verifiedCertificate->bundle)
+            ->withCertificate([
+                'cert' => $context->certificate->certificatePem,
+                'extracerts' => $context->certificate->chainPem,
+            ])
             ->withMetadata($this->toMetadata($context))
             ->withSubFilter($this->resolveSubFilter($context))
-            ->withCertificationLevel($context->request->options->certificationLevel);
+            ->withCertificationLevel($context->options->certificationLevel);
 
         $appearance = $this->resolveAppearance($context);
         if ($appearance !== null) {
@@ -47,12 +50,12 @@ final class PdfSignatureFactory implements SignatureFactoryInterface
 
     private function resolveAppearance(SigningContextDto $context): ?SignatureAppearanceDto
     {
-        $appearance = $context->request->options->appearance;
+        $appearance = $context->options->appearance;
         if ($appearance !== null) {
             return $appearance;
         }
 
-        if (! $context->request->options->useDefaultAppearance) {
+        if (! $context->options->useDefaultAppearance) {
             return null;
         }
 
@@ -61,7 +64,7 @@ final class PdfSignatureFactory implements SignatureFactoryInterface
 
     private function toMetadata(SigningContextDto $context): Metadata
     {
-        $metadata = $context->request->options->metadata;
+        $metadata = $context->options->metadata;
 
         return Metadata::new()
             ->withName($metadata?->actor?->name)
@@ -72,7 +75,7 @@ final class PdfSignatureFactory implements SignatureFactoryInterface
 
     private function resolveSubFilter(SigningContextDto $context): string
     {
-        return match ($context->request->options->signatureProfile) {
+        return match ($context->options->signatureProfile) {
             SignatureProfile::PadesBaselineB, SignatureProfile::PadesBaselineT, SignatureProfile::PadesBaselineLT, SignatureProfile::PadesBaselineLTA => SignatureObject::SUBFILTER_ETSI_CADES_DETACHED,
             default => SignatureObject::SUBFILTER_PKCS7_DETACHED,
         };

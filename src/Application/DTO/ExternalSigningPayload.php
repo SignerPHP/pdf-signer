@@ -7,23 +7,21 @@ namespace SignerPHP\PdfSigner\Application\DTO;
 final readonly class ExternalSigningPayload
 {
     public function __construct(
-        public string $dataBase64,
-        public string $digestBase64,
+        public string $inputBase64,
+        public SigningInputType $inputType,
         public HashAlgorithm $digestAlgorithm,
         public SignatureAlgorithm $signatureAlgorithm,
-        public string $input = 'cms-signed-attributes',
-        public string $encoding = 'base64',
-        public string $signatureEncoding = 'binary',
+        public SignatureEncoding $signatureEncoding,
     ) {}
 
-    public function data(): string
+    public function input(): string
     {
-        $data = base64_decode($this->dataBase64, true);
+        $input = base64_decode($this->inputBase64, true);
 
-        if (! is_string($data)) {
-            throw new \InvalidArgumentException('External signing payload contains invalid base64 data.');
+        if (! is_string($input)) {
+            throw new \InvalidArgumentException('External signing payload contains invalid base64 input.');
         }
 
-        return $data;
+        return $input;
     }
 }

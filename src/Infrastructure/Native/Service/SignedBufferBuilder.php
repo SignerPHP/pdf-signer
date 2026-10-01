@@ -54,23 +54,23 @@ final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
         $signature['Contents'] = new PDFValueSimple('');
 
         $signableDocument = new Buffer($docToXref->raw().$signature->toPdfEntry().$docFromXref->raw());
-        $certificatePem = (string) ($context->verifiedCertificate->bundle['cert'] ?? '');
+        $certificatePem = $context->certificate->certificatePem;
         $signatureContents = $this->pkcs7Signer->sign($signableDocument, $signatureProvider, $certificatePem);
 
         $signature['Contents'] = new PDFValueHexString($signatureContents);
         $docToXref->data($signature->toPdfEntry());
 
         $signedRaw = $docToXref->raw().$docFromXref->raw();
-        $timestamp = $context->request->options->timestamp;
+        $timestamp = $context->options->timestamp;
         if ($timestamp !== null) {
             $signedRaw = $this->documentTimestampApplier->apply($signedRaw, $timestamp);
         }
 
-        if (in_array($context->request->options->signatureProfile, [SignatureProfile::PadesBaselineLT, SignatureProfile::PadesBaselineLTA], true)) {
+        if (in_array($context->options->signatureProfile, [SignatureProfile::PadesBaselineLT, SignatureProfile::PadesBaselineLTA], true)) {
             $signedRaw = $this->longTermValidationApplier->apply($signedRaw);
         }
 
-        if ($context->request->options->signatureProfile === SignatureProfile::PadesBaselineLTA && $timestamp !== null) {
+        if ($context->options->signatureProfile === SignatureProfile::PadesBaselineLTA && $timestamp !== null) {
             $signedRaw = $this->documentTimestampApplier->apply($signedRaw, $timestamp);
         }
 

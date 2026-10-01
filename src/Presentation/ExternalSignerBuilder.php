@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace SignerPHP\PdfSigner\Presentation;
 
-use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
 use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
@@ -12,11 +11,10 @@ use SignerPHP\PdfSigner\Application\DTO\PreparedExternalSignature;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureMetadataDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
+use SignerPHP\PdfSigner\Application\DTO\SigningCertificateDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto;
-use SignerPHP\PdfSigner\Application\DTO\SignPdfRequestDto;
 use SignerPHP\PdfSigner\Domain\Exception\SignerException;
-use SignerPHP\PdfSigner\Domain\ValueObject\VerifiedCertificate;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\ExternalPdfSigningService;
 
 final class ExternalSignerBuilder
@@ -121,10 +119,8 @@ final class ExternalSignerBuilder
             throw new SignerException('Signing certificate is required. Use withCertificate().');
         }
 
-        $credentials = CertificateCredentialsDto::fromContent($this->certificatePem, '');
-        $request = new SignPdfRequestDto(
+        $context = new SigningContextDto(
             $this->content,
-            $credentials,
             new SigningOptionsDto(
                 $this->metadata,
                 $this->appearance,
@@ -133,16 +129,10 @@ final class ExternalSignerBuilder
                 $this->signatureProfile,
                 $this->certificationLevel,
             ),
+            new SigningCertificateDto($this->certificatePem),
         );
-        $parsed = openssl_x509_parse($this->certificatePem);
 
-        return $this->service->prepare(new SigningContextDto(
-            $request,
-            new VerifiedCertificate($credentials, is_array($parsed) ? $parsed : [], [
-                'cert' => $this->certificatePem,
-                'pkey' => '',
-            ]),
-        ), $this->hashAlgorithm);
+        return $this->service->prepare($context, $this->hashAlgorithm);
     }
 
     public function complete(string $state, string $rawSignature): string
