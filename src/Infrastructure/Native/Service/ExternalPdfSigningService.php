@@ -10,6 +10,7 @@ use SignerPHP\PdfCore\Xref\Xref;
 use SignerPHP\PdfSigner\Application\DTO\ExternalSigningPayload;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\PreparedExternalSignature;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureEncoding;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
@@ -47,7 +48,12 @@ final readonly class ExternalPdfSigningService
 
         $unsignedPdf = $docToXref->raw().$signature->toPdfEntry().$docFromXref->raw();
         $certificatePem = $context->certificate->certificatePem;
-        $preparedCms = $this->cmsAssembler->prepare($unsignedPdf, $certificatePem, $algorithm);
+        $preparedCms = $this->cmsAssembler->prepare(
+            $unsignedPdf,
+            $certificatePem,
+            $algorithm,
+            certificateChainPem: $context->certificate->chainPem,
+        );
 
         return new PreparedExternalSignature(
             new ExternalSigningPayload(
@@ -55,7 +61,7 @@ final readonly class ExternalPdfSigningService
                 SigningInputType::Digest,
                 $algorithm,
                 $preparedCms->signatureAlgorithm,
-                $preparedCms->signatureAlgorithm === \SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm::EcdsaDer
+                $preparedCms->signatureAlgorithm === SignatureAlgorithm::Ecdsa
                     ? SignatureEncoding::EcdsaDer
                     : SignatureEncoding::RsaPkcs1,
             ),
@@ -102,11 +108,12 @@ final readonly class ExternalPdfSigningService
             'version' => 1,
             'unsignedPdf' => base64_encode($unsignedPdf),
             'certificate' => base64_encode($cms->certificatePem),
+            'certificateChain' => array_map('base64_encode', $cms->certificateChainPem),
             'signedAttributes' => base64_encode($cms->signedAttributes),
             'digestAlgorithm' => $cms->digestAlgorithm->value,
             'signatureAlgorithm' => $cms->signatureAlgorithm->value,
         ];
-        $payload['checksum'] = hash('sha256', implode('|', $payload));
+        $payload['checksum'] = $this->stateChecksum($payload);
 
         return json_encode($payload, JSON_THROW_ON_ERROR);
     }
@@ -121,19 +128,49 @@ final readonly class ExternalPdfSigningService
 
         $checksum = $payload['checksum'] ?? null;
         unset($payload['checksum']);
-        if (! is_string($checksum) || ! hash_equals($checksum, hash('sha256', implode('|', $payload)))) {
+        if (! is_string($checksum) || ! hash_equals($checksum, $this->stateChecksum($payload))) {
             throw new SignProcessException('External signing state checksum is invalid.');
         }
 
         $pdf = base64_decode((string) ($payload['unsignedPdf'] ?? ''), true);
         $certificate = base64_decode((string) ($payload['certificate'] ?? ''), true);
+        $certificateChain = $this->decodeCertificateChain($payload['certificateChain'] ?? null);
         $attributes = base64_decode((string) ($payload['signedAttributes'] ?? ''), true);
         $digest = HashAlgorithm::tryFrom((string) ($payload['digestAlgorithm'] ?? ''));
         $signature = \SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm::tryFrom((string) ($payload['signatureAlgorithm'] ?? ''));
-        if (! is_string($pdf) || $pdf === '' || ! is_string($certificate) || $certificate === '' || ! is_string($attributes) || $attributes === '' || $digest === null || $signature === null) {
+        if (! is_string($pdf) || $pdf === '' || ! is_string($certificate) || $certificate === '' || $certificateChain === null || ! is_string($attributes) || $attributes === '' || $digest === null || $signature === null) {
             throw new SignProcessException('External signing state is incomplete or corrupted.');
         }
 
-        return [$pdf, new PreparedDetachedCms($certificate, $attributes, $digest, $signature)];
+        return [$pdf, new PreparedDetachedCms($certificate, $attributes, $digest, $signature, $certificateChain)];
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function stateChecksum(array $payload): string
+    {
+        return hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
+    }
+
+    /** @return list<string>|null */
+    private function decodeCertificateChain(mixed $encodedChain): ?array
+    {
+        if (! is_array($encodedChain)) {
+            return null;
+        }
+
+        $chain = [];
+        foreach ($encodedChain as $encodedCertificate) {
+            if (! is_string($encodedCertificate)) {
+                return null;
+            }
+
+            $certificate = base64_decode($encodedCertificate, true);
+            if (! is_string($certificate) || $certificate === '') {
+                return null;
+            }
+            $chain[] = $certificate;
+        }
+
+        return $chain;
     }
 }

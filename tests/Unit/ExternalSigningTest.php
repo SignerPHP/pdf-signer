@@ -73,6 +73,22 @@ it('keeps an existing signature valid when appending another one', function (): 
         ->and($validation->allValid)->toBeTrue();
 });
 
+it('preserves the certificate chain through preparation and completion', function (): void {
+    $bundle = Pkcs12Fixture::load();
+    $builder = Signer::externalSigner()
+        ->withPdfContent(PdfFixtureFactory::minimalPdf())
+        ->withCertificate($bundle['cert'], [$bundle['cert']])
+        ->withoutDefaultAppearance();
+    $prepared = $builder->prepare();
+    $state = json_decode($prepared->state, true, flags: JSON_THROW_ON_ERROR);
+    $signature = signRsaDigest($prepared->payload->input(), $bundle['pkey'], 'sha256');
+    $signedPdf = $builder->complete($prepared->state, $signature);
+    $certificateDer = \SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\X509Certificate::fromPem($bundle['cert'])->der;
+
+    expect($state['certificateChain'])->toBe([base64_encode($bundle['cert'])])
+        ->and($signedPdf)->toContain(bin2hex($certificateDer));
+});
+
 it('rejects modified prepared state', function (): void {
     $bundle = Pkcs12Fixture::load();
     $prepared = Signer::externalSigner()
@@ -160,7 +176,7 @@ it('rejects corrupted state fields and missing byte ranges', function (): void {
         $payload = json_decode($prepared->state, true, flags: JSON_THROW_ON_ERROR);
         unset($payload['checksum']);
         $payload = $mutate($payload);
-        $payload['checksum'] = hash('sha256', implode('|', $payload));
+        $payload['checksum'] = hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
 
         return json_encode($payload, JSON_THROW_ON_ERROR);
     };

@@ -29,8 +29,9 @@ final class DetachedCmsAssembler
         SignatureProviderInterface $signatureProvider,
         HashAlgorithm $algorithm = HashAlgorithm::Sha256,
         ?\DateTimeInterface $signingTime = null,
+        array $certificateChainPem = [],
     ): string {
-        $prepared = $this->prepare($dataToSign, $certificatePem, $algorithm, $signingTime);
+        $prepared = $this->prepare($dataToSign, $certificatePem, $algorithm, $signingTime, $certificateChainPem);
         $signature = $signatureProvider->sign(new SigningPayload($prepared->signedAttributes, $algorithm));
 
         return $this->complete($prepared, $signature);
@@ -41,6 +42,7 @@ final class DetachedCmsAssembler
         string $certificatePem,
         HashAlgorithm $algorithm = HashAlgorithm::Sha256,
         ?\DateTimeInterface $signingTime = null,
+        array $certificateChainPem = [],
     ): PreparedDetachedCms {
         $certificate = X509Certificate::fromPem($certificatePem);
         $digest = hash($algorithm->value, $dataToSign, true);
@@ -49,7 +51,8 @@ final class DetachedCmsAssembler
             $certificatePem,
             $this->signedAttributesSet($digest, $signingTime ?? new \DateTimeImmutable('now')),
             $algorithm,
-            $certificate->keyType() === 'ec' ? SignatureAlgorithm::EcdsaDer : SignatureAlgorithm::RsaPkcs1V15,
+            $certificate->keyType() === 'ec' ? SignatureAlgorithm::Ecdsa : SignatureAlgorithm::RsaPkcs1V15,
+            $certificateChainPem,
         );
     }
 
@@ -64,7 +67,10 @@ final class DetachedCmsAssembler
         $this->assertCompatibleSignatureAlgorithm($prepared->signatureAlgorithm, $certificate->keyType());
 
         $digestAlgorithm = Der::algorithmIdentifier($this->digestOid($algorithm));
-        $signatureAlgorithm = Der::algorithmIdentifier($this->signatureOid($prepared->signatureAlgorithm, $algorithm));
+        $signatureAlgorithm = Der::algorithmIdentifier(
+            $this->signatureOid($prepared->signatureAlgorithm, $algorithm),
+            $prepared->signatureAlgorithm !== SignatureAlgorithm::Ecdsa,
+        );
         $signedAttrsImplicit = "\xA0".substr($prepared->signedAttributes, 1);
 
         $signerInfo = Der::sequence(
@@ -80,7 +86,7 @@ final class DetachedCmsAssembler
             Der::tlv(0x02, "\x01")
             .Der::set($digestAlgorithm)
             .Der::sequence(Der::objectIdentifier(self::OID_DATA))
-            .Der::contextSpecific(0, $certificate->der)
+            .Der::contextSpecific(0, $this->certificateSet($certificate, $prepared->certificateChainPem))
             .Der::set($signerInfo)
         );
 
@@ -124,7 +130,7 @@ final class DetachedCmsAssembler
 
     private function signatureOid(SignatureAlgorithm $signatureAlgorithm, HashAlgorithm $digestAlgorithm): string
     {
-        if ($signatureAlgorithm === SignatureAlgorithm::EcdsaDer) {
+        if ($signatureAlgorithm === SignatureAlgorithm::Ecdsa) {
             return match ($digestAlgorithm) {
                 HashAlgorithm::Sha1 => '1.2.840.10045.4.1',
                 HashAlgorithm::Sha224 => '1.2.840.10045.4.3.1',
@@ -146,7 +152,7 @@ final class DetachedCmsAssembler
     private function assertCompatibleSignatureAlgorithm(SignatureAlgorithm $algorithm, string $keyType): void
     {
         $compatible = match ($algorithm) {
-            SignatureAlgorithm::EcdsaDer => $keyType === 'ec',
+            SignatureAlgorithm::Ecdsa => $keyType === 'ec',
             SignatureAlgorithm::RsaPkcs1V15 => $keyType === 'rsa',
         };
 
@@ -157,5 +163,20 @@ final class DetachedCmsAssembler
                 $keyType,
             ));
         }
+    }
+
+    /** @param list<string> $certificateChainPem */
+    private function certificateSet(X509Certificate $signer, array $certificateChainPem): string
+    {
+        $certificates = [$signer->der];
+        foreach ($certificateChainPem as $certificatePem) {
+            $certificateDer = X509Certificate::fromPem($certificatePem)->der;
+            if (! in_array($certificateDer, $certificates, true)) {
+                $certificates[] = $certificateDer;
+            }
+        }
+        sort($certificates, SORT_STRING);
+
+        return implode('', $certificates);
     }
 }

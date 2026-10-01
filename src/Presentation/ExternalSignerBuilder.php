@@ -23,6 +23,9 @@ final class ExternalSignerBuilder
 
     private ?string $certificatePem = null;
 
+    /** @var list<string> */
+    private array $certificateChainPem = [];
+
     private ?SignatureMetadataDto $metadata = null;
 
     private ?SignatureAppearanceDto $appearance = null;
@@ -51,13 +54,15 @@ final class ExternalSignerBuilder
         return $this;
     }
 
-    public function withCertificate(string $certificatePem): self
+    /** @param list<string> $certificateChainPem */
+    public function withCertificate(string $certificatePem, array $certificateChainPem = []): self
     {
-        if (! $this->isCertificate($certificatePem)) {
+        if (! $this->isCertificate($certificatePem) || ! $this->isCertificateChain($certificateChainPem)) {
             throw new SignerException('A valid PEM signing certificate is required.');
         }
 
         $this->certificatePem = $certificatePem;
+        $this->certificateChainPem = $certificateChainPem;
 
         return $this;
     }
@@ -129,7 +134,7 @@ final class ExternalSignerBuilder
                 $this->signatureProfile,
                 $this->certificationLevel,
             ),
-            new SigningCertificateDto($this->certificatePem),
+            new SigningCertificateDto($this->certificatePem, $this->certificateChainPem),
         );
 
         return $this->service->prepare($context, $this->hashAlgorithm);
@@ -159,5 +164,17 @@ final class ExternalSignerBuilder
         } finally {
             restore_error_handler();
         }
+    }
+
+    /** @param list<string> $certificateChainPem */
+    private function isCertificateChain(array $certificateChainPem): bool
+    {
+        foreach ($certificateChainPem as $certificatePem) {
+            if (! $this->isCertificate($certificatePem)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

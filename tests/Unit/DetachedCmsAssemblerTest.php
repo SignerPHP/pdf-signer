@@ -14,6 +14,7 @@ use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\DetachedCmsAssembler;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\PreparedDetachedCms;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\X509Certificate;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProvider;
 use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
 
@@ -82,6 +83,32 @@ final class DetachedCmsAssemblerTest extends TestCase
         }
     }
 
+    public function test_ecdsa_algorithm_identifier_omits_null_parameters(): void
+    {
+        $bundle = $this->selfSignedEc();
+        $provider = new LocalPrivateKeySignatureProvider($bundle['pkey']);
+        $cms = (new DetachedCmsAssembler)->assemble('payload', $bundle['cert'], $provider);
+        $oid = Der::objectIdentifier('1.2.840.10045.4.3.2');
+
+        self::assertStringContainsString(Der::sequence($oid), $cms);
+        self::assertStringNotContainsString(Der::sequence($oid.Der::null()), $cms);
+    }
+
+    public function test_complete_includes_the_available_certificate_chain(): void
+    {
+        $signer = Pkcs12Fixture::load();
+        $chainCertificate = $this->selfSignedEc()['cert'];
+        $provider = new LocalPrivateKeySignatureProvider($signer['pkey']);
+        $cms = (new DetachedCmsAssembler)->assemble(
+            'payload',
+            $signer['cert'],
+            $provider,
+            certificateChainPem: [$chainCertificate],
+        );
+
+        self::assertStringContainsString(X509Certificate::fromPem($chainCertificate)->der, $cms);
+    }
+
     public function test_complete_rejects_a_prepared_algorithm_that_is_incompatible_with_the_certificate(): void
     {
         $bundle = Pkcs12Fixture::load();
@@ -94,7 +121,7 @@ final class DetachedCmsAssemblerTest extends TestCase
             $prepared->certificatePem,
             $prepared->signedAttributes,
             $prepared->digestAlgorithm,
-            SignatureAlgorithm::EcdsaDer,
+            SignatureAlgorithm::Ecdsa,
         ), new SignatureValue('signature'));
     }
 
