@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\CurlHttpClient;
 use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasAuthorization;
-use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasProvider;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasCertificateDiscovery;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasClient;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasSignatureProvider;
 
 require dirname(__DIR__, 3).'/vendor/autoload.php';
 
@@ -30,18 +32,28 @@ function authorization(): VidaasAuthorization
         new CurlHttpClient,
         env('VIDAAS_CLIENT_ID'),
         env('VIDAAS_CLIENT_SECRET'),
-        env('VIDAAS_BASE_URL', VidaasProvider::SANDBOX_URL),
+        env('VIDAAS_BASE_URL', VidaasClient::SANDBOX_URL),
     );
 }
 
-function provider(): VidaasProvider
+function vidaasClient(): VidaasClient
 {
     $token = $_SESSION['vidaas_access_token'] ?? null;
     if (! is_string($token) || $token === '') {
         throw new RuntimeException('Autorize a sessão VIDaaS antes de consultar certificados ou assinar.');
     }
 
-    return new VidaasProvider($token, new CurlHttpClient, env('VIDAAS_BASE_URL', VidaasProvider::SANDBOX_URL));
+    return new VidaasClient($token, new CurlHttpClient, env('VIDAAS_BASE_URL', VidaasClient::SANDBOX_URL));
+}
+
+function certificateDiscovery(): VidaasCertificateDiscovery
+{
+    return new VidaasCertificateDiscovery(vidaasClient());
+}
+
+function signatureProvider(): VidaasSignatureProvider
+{
+    return new VidaasSignatureProvider(vidaasClient());
 }
 
 function callbackUrl(): string

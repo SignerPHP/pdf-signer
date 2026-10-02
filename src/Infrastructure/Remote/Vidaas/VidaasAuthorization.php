@@ -15,11 +15,16 @@ final readonly class VidaasAuthorization
 
     private const PUSH_STATUS_PATH = '/valid/api/v1/trusted-services/authentications';
 
+    private const PUSH_CODE_VERIFIER = 'challenge';
+
+    private const PUSH_REDIRECT_URI = 'push://';
+
     public function __construct(
         private HttpClientInterface $httpClient,
         private string $clientId,
+        #[\SensitiveParameter]
         private string $clientSecret,
-        private string $baseUrl = VidaasProvider::PRODUCTION_URL,
+        private string $baseUrl = VidaasClient::PRODUCTION_URL,
         private int $timeoutSeconds = 20,
     ) {
         if (trim($this->clientId) === '' || trim($this->clientSecret) === '') {
@@ -89,9 +94,32 @@ final readonly class VidaasAuthorization
         );
     }
 
-    public function startPush(string $codeChallenge, string $loginHint, string $scope = 'signature_session', int $lifetimeSeconds = 900): VidaasPushAuthorization
-    {
-        $url = $this->authorizationUrl($codeChallenge, $scope, 'push://', loginHint: $loginHint, lifetimeSeconds: $lifetimeSeconds);
+    public function startPush(
+        string $loginHint,
+        string $scope = 'signature_session',
+        int $lifetimeSeconds = 120,
+        ?string $state = null,
+    ): VidaasPushAuthorization {
+        if (trim($loginHint) === '') {
+            throw new SignerException('VIDaaS push authorization requires a loginHint.');
+        }
+        if ($lifetimeSeconds < 60 || $lifetimeSeconds > 3600) {
+            throw new SignerException('VIDaaS push lifetimeSeconds must be between 60 and 3600.');
+        }
+
+        $query = [
+            'response_type' => 'code',
+            'client_id' => $this->clientId,
+            'code_challenge' => self::PUSH_CODE_VERIFIER,
+            'code_challenge_method' => 'plain',
+            'scope' => $scope,
+            'login_hint' => trim($loginHint),
+            'redirect_uri' => self::PUSH_REDIRECT_URI,
+            'lifetime' => $lifetimeSeconds,
+        ];
+        $this->addOptional($query, 'state', $state);
+
+        $url = $this->url(self::AUTHORIZE_PATH).'?'.http_build_query($query);
         $response = $this->httpClient->request('GET', $url, ['Accept: text/plain'], timeoutSeconds: $this->timeoutSeconds);
         if (! $response->isSuccessful()) {
             throw new SignerException(sprintf('VIDaaS push authorization failed with HTTP %d.', $response->statusCode));
@@ -113,24 +141,30 @@ final readonly class VidaasAuthorization
         }
 
         $response = $this->httpClient->request(
-            'GET',
-            $this->url(self::PUSH_STATUS_PATH).'?'.http_build_query(['code' => trim($code)]),
-            ['Accept: application/json'],
+            'POST',
+            $this->url(self::PUSH_STATUS_PATH),
+            ['Authorization: Bearer '.trim($code), 'Accept: application/json'],
             timeoutSeconds: $this->timeoutSeconds,
         );
-        if ($response->statusCode === 304) {
-            return VidaasPushAuthentication::pending();
-        }
 
         $json = $this->successfulJson($response->statusCode, $response->body, 'push polling');
         $token = $json['authorizationToken'] ?? null;
         if (! is_string($token) || trim($token) === '') {
-            throw new SignerException('VIDaaS push polling response does not contain authorizationToken.');
+            return VidaasPushAuthentication::pending();
         }
 
         $redirectUrl = is_string($json['redirectUrl'] ?? null) ? trim($json['redirectUrl']) : null;
 
         return VidaasPushAuthentication::approved(trim($token), $redirectUrl ?: null);
+    }
+
+    public function exchangePushAuthorizationToken(string $authorizationToken): VidaasAccessToken
+    {
+        return $this->exchangeAuthorizationCode(
+            $authorizationToken,
+            self::PUSH_CODE_VERIFIER,
+            self::PUSH_REDIRECT_URI,
+        );
     }
 
     /** @param array<string, mixed> $values */

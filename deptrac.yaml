@@ -18,6 +18,10 @@ deptrac:
       collectors:
         - type: classNameRegex
           value: '#^SignerPHP\\\\PdfSigner\\\\Infrastructure\\\\#'
+    - name: RemoteSigning
+      collectors:
+        - type: classNameRegex
+          value: '#^SignerPHP\\\\PdfSigner\\\\RemoteSigning\\\\#'
   ruleset:
     Presentation:
       - Application
@@ -29,3 +33,6 @@ deptrac:
     Infrastructure:
       - Application
       - Domain
+      - RemoteSigning
+    RemoteSigning:
+      - Application

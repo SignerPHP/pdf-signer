@@ -47,12 +47,9 @@ try {
     }
 
     if ($action === 'start_push') {
-        $verifier = VidaasPkce::generateVerifier();
         $push = authorization()->startPush(
-            VidaasPkce::challenge($verifier),
             trim((string) ($_POST['login_hint'] ?? '')),
         );
-        $_SESSION['vidaas_verifier'] = $verifier;
         $_SESSION['vidaas_push_code'] = $push->code;
         $message = 'Notificação enviada. Autorize no aplicativo e clique em verificar.';
     }
@@ -62,13 +59,11 @@ try {
         if (! $push->approved || $push->authorizationToken === null) {
             $message = 'A autorização ainda está pendente no aplicativo VIDaaS.';
         } else {
-            $token = authorization()->exchangeAuthorizationCode(
+            $token = authorization()->exchangePushAuthorizationToken(
                 $push->authorizationToken,
-                (string) ($_SESSION['vidaas_verifier'] ?? ''),
-                'push://',
             );
             $_SESSION['vidaas_access_token'] = $token->value;
-            unset($_SESSION['vidaas_push_code'], $_SESSION['vidaas_verifier']);
+            unset($_SESSION['vidaas_push_code']);
             $message = 'Autorização por push concluída.';
         }
     }
@@ -84,14 +79,16 @@ try {
         }
 
         $alias = trim((string) ($_POST['certificate_alias'] ?? ''));
-        $vidaas = provider();
-        $certificate = $vidaas->certificates($alias)[0];
+        $certificate = certificateDiscovery()->certificates($alias)[0];
         $builder = Signer::externalSigner()
             ->withPdfContent($pdf)
-            ->withCertificate($certificate->pem)
+            ->withCertificate(
+                $certificate->certificate->certificatePem,
+                $certificate->certificate->chainPem,
+            )
             ->withPadesBaselineB();
         $prepared = $builder->prepare();
-        $signature = $vidaas->sign($prepared->payload, $certificate->alias);
+        $signature = signatureProvider()->sign($prepared->payload, $certificate);
         $signedPdf = $builder->complete($prepared->state, $signature->bytes);
 
         header('Content-Type: application/pdf');
@@ -107,7 +104,7 @@ try {
 $certificates = [];
 if (isset($_SESSION['vidaas_access_token'])) {
     try {
-        $certificates = provider()->certificates();
+        $certificates = certificateDiscovery()->certificates();
     } catch (Throwable $exception) {
         $error = $exception->getMessage();
     }
@@ -157,7 +154,7 @@ if (isset($_SESSION['vidaas_access_token'])) {
             <form method="post" enctype="multipart/form-data"><input type="hidden" name="action" value="sign">
                 <label>Certificado<select name="certificate_alias" required>
                     <?php foreach ($certificates as $certificate) { ?>
-                        <option value="<?= escape($certificate->alias) ?>"><?= escape($certificate->alias) ?></option>
+                        <option value="<?= escape($certificate->identifier) ?>"><?= escape($certificate->identifier) ?></option>
                     <?php } ?>
                 </select></label>
                 <label>Documento PDF<input type="file" name="pdf" accept="application/pdf" required></label>
