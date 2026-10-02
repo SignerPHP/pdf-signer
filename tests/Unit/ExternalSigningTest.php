@@ -11,6 +11,9 @@ use SignerPHP\PdfSigner\Application\DTO\SignatureMetadataDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningInputType;
 use SignerPHP\PdfSigner\Domain\Exception\SignerException;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\X509Certificate;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslCmsCertificateCollector;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureExtractor;
 use SignerPHP\PdfSigner\Presentation\ExternalSignerBuilder;
 use SignerPHP\PdfSigner\Presentation\Signer;
 use SignerPHP\PdfSigner\Tests\Support\PdfFixtureFactory;
@@ -74,19 +77,24 @@ it('keeps an existing signature valid when appending another one', function (): 
 });
 
 it('preserves the certificate chain through preparation and completion', function (): void {
-    $bundle = Pkcs12Fixture::load();
+    $signer = Pkcs12Fixture::load();
+    $chainCertificate = externalSigningChainCertificate();
     $builder = Signer::externalSigner()
         ->withPdfContent(PdfFixtureFactory::minimalPdf())
-        ->withCertificate($bundle['cert'], [$bundle['cert']])
+        ->withCertificate($signer['cert'], [$chainCertificate])
         ->withoutDefaultAppearance();
     $prepared = $builder->prepare();
     $state = json_decode($prepared->state, true, flags: JSON_THROW_ON_ERROR);
-    $signature = signRsaDigest($prepared->payload->input(), $bundle['pkey'], 'sha256');
+    $signature = signRsaDigest($prepared->payload->input(), $signer['pkey'], 'sha256');
     $signedPdf = $builder->complete($prepared->state, $signature);
-    $certificateDer = \SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\X509Certificate::fromPem($bundle['cert'])->der;
+    $extractedSignatures = (new PdfSignatureExtractor)->extract($signedPdf);
+    $certificates = (new OpenSslCmsCertificateCollector)->collectDerCertificates($extractedSignatures[0]->signatureHex);
 
-    expect($state['certificateChain'])->toBe([base64_encode($bundle['cert'])])
-        ->and($signedPdf)->toContain(bin2hex($certificateDer));
+    expect($state['certificateChain'])->toBe([base64_encode($chainCertificate)])
+        ->and($extractedSignatures)->toHaveCount(1)
+        ->and($certificates)->toHaveCount(2)
+        ->toContain(X509Certificate::fromPem($signer['cert'])->der)
+        ->toContain(X509Certificate::fromPem($chainCertificate)->der);
 });
 
 it('rejects modified prepared state', function (): void {
@@ -148,6 +156,24 @@ function signRsaDigest(string $digest, string $privateKeyPem, string $algorithm)
     expect(openssl_private_encrypt($digestInfoPrefix.$digest, $signature, $privateKeyPem, OPENSSL_PKCS1_PADDING))->toBeTrue();
 
     return $signature;
+}
+
+function externalSigningChainCertificate(): string
+{
+    $key = openssl_pkey_new([
+        'private_key_bits' => 2048,
+        'private_key_type' => OPENSSL_KEYTYPE_RSA,
+    ]);
+    expect($key)->not->toBeFalse();
+
+    $csr = openssl_csr_new(['CN' => 'external-signing-chain-test'], $key, ['digest_alg' => 'sha256']);
+    expect($csr)->not->toBeFalse();
+
+    $certificate = openssl_csr_sign($csr, null, $key, 1, ['digest_alg' => 'sha256']);
+    expect($certificate)->not->toBeFalse();
+    expect(openssl_x509_export($certificate, $certificatePem))->toBeTrue();
+
+    return (string) $certificatePem;
 }
 
 it('rejects invalid payload and prepared state shapes', function (): void {
