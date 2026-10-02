@@ -6,6 +6,8 @@ namespace SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms;
 
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 
@@ -27,18 +29,49 @@ final class DetachedCmsAssembler
         SignatureProviderInterface $signatureProvider,
         HashAlgorithm $algorithm = HashAlgorithm::Sha256,
         ?\DateTimeInterface $signingTime = null,
+        array $certificateChainPem = [],
     ): string {
+        $prepared = $this->prepare($dataToSign, $certificatePem, $algorithm, $signingTime, $certificateChainPem);
+        $signature = $signatureProvider->sign(new SigningPayload($prepared->signedAttributes, $algorithm));
+
+        return $this->complete($prepared, $signature);
+    }
+
+    public function prepare(
+        string $dataToSign,
+        string $certificatePem,
+        HashAlgorithm $algorithm = HashAlgorithm::Sha256,
+        ?\DateTimeInterface $signingTime = null,
+        array $certificateChainPem = [],
+    ): PreparedDetachedCms {
         $certificate = X509Certificate::fromPem($certificatePem);
         $digest = hash($algorithm->value, $dataToSign, true);
-        $signedAttrsSet = $this->signedAttributesSet($digest, $signingTime ?? new \DateTimeImmutable('now'));
-        $signature = $signatureProvider->sign(new SigningPayload($signedAttrsSet, $algorithm));
+
+        return new PreparedDetachedCms(
+            $certificatePem,
+            $this->signedAttributesSet($digest, $signingTime ?? new \DateTimeImmutable('now')),
+            $algorithm,
+            $certificate->keyType() === 'ec' ? SignatureAlgorithm::Ecdsa : SignatureAlgorithm::RsaPkcs1V15,
+            $certificateChainPem,
+        );
+    }
+
+    public function complete(PreparedDetachedCms $prepared, SignatureValue $signature): string
+    {
         if ($signature->bytes === '') {
             throw new SignProcessException('Signature provider returned an empty signature.');
         }
 
+        $certificate = X509Certificate::fromPem($prepared->certificatePem);
+        $algorithm = $prepared->digestAlgorithm;
+        $this->assertCompatibleSignatureAlgorithm($prepared->signatureAlgorithm, $certificate->keyType());
+
         $digestAlgorithm = Der::algorithmIdentifier($this->digestOid($algorithm));
-        $signatureAlgorithm = Der::algorithmIdentifier($this->signatureOid($algorithm, $certificate->keyType()));
-        $signedAttrsImplicit = "\xA0".substr($signedAttrsSet, 1);
+        $signatureAlgorithm = Der::algorithmIdentifier(
+            $this->signatureOid($prepared->signatureAlgorithm, $algorithm),
+            $prepared->signatureAlgorithm !== SignatureAlgorithm::Ecdsa,
+        );
+        $signedAttrsImplicit = "\xA0".substr($prepared->signedAttributes, 1);
 
         $signerInfo = Der::sequence(
             Der::tlv(0x02, "\x01")
@@ -53,7 +86,7 @@ final class DetachedCmsAssembler
             Der::tlv(0x02, "\x01")
             .Der::set($digestAlgorithm)
             .Der::sequence(Der::objectIdentifier(self::OID_DATA))
-            .Der::contextSpecific(0, $certificate->der)
+            .Der::contextSpecific(0, $this->certificateSet($certificate, $prepared->certificateChainPem))
             .Der::set($signerInfo)
         );
 
@@ -95,10 +128,10 @@ final class DetachedCmsAssembler
         };
     }
 
-    private function signatureOid(HashAlgorithm $algorithm, string $keyType): string
+    private function signatureOid(SignatureAlgorithm $signatureAlgorithm, HashAlgorithm $digestAlgorithm): string
     {
-        if ($keyType === 'ec') {
-            return match ($algorithm) {
+        if ($signatureAlgorithm === SignatureAlgorithm::Ecdsa) {
+            return match ($digestAlgorithm) {
                 HashAlgorithm::Sha1 => '1.2.840.10045.4.1',
                 HashAlgorithm::Sha224 => '1.2.840.10045.4.3.1',
                 HashAlgorithm::Sha256 => '1.2.840.10045.4.3.2',
@@ -107,12 +140,43 @@ final class DetachedCmsAssembler
             };
         }
 
-        return match ($algorithm) {
+        return match ($digestAlgorithm) {
             HashAlgorithm::Sha1 => '1.2.840.113549.1.1.5',
             HashAlgorithm::Sha224 => '1.2.840.113549.1.1.14',
             HashAlgorithm::Sha256 => '1.2.840.113549.1.1.11',
             HashAlgorithm::Sha384 => '1.2.840.113549.1.1.12',
             HashAlgorithm::Sha512 => '1.2.840.113549.1.1.13',
         };
+    }
+
+    private function assertCompatibleSignatureAlgorithm(SignatureAlgorithm $algorithm, string $keyType): void
+    {
+        $compatible = match ($algorithm) {
+            SignatureAlgorithm::Ecdsa => $keyType === 'ec',
+            SignatureAlgorithm::RsaPkcs1V15 => $keyType === 'rsa',
+        };
+
+        if (! $compatible) {
+            throw new SignProcessException(sprintf(
+                'Prepared signature algorithm %s is not compatible with the %s certificate key.',
+                $algorithm->value,
+                $keyType,
+            ));
+        }
+    }
+
+    /** @param list<string> $certificateChainPem */
+    private function certificateSet(X509Certificate $signer, array $certificateChainPem): string
+    {
+        $certificates = [$signer->der];
+        foreach ($certificateChainPem as $certificatePem) {
+            $certificateDer = X509Certificate::fromPem($certificatePem)->der;
+            if (! in_array($certificateDer, $certificates, true)) {
+                $certificates[] = $certificateDer;
+            }
+        }
+        sort($certificates, SORT_STRING);
+
+        return implode('', $certificates);
     }
 }

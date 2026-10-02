@@ -7,11 +7,14 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\DetachedCmsAssembler;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\PreparedDetachedCms;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\X509Certificate;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProvider;
 use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
 
@@ -78,6 +81,48 @@ final class DetachedCmsAssemblerTest extends TestCase
 
             self::assertNotSame('', $cms);
         }
+    }
+
+    public function test_ecdsa_algorithm_identifier_omits_null_parameters(): void
+    {
+        $bundle = $this->selfSignedEc();
+        $provider = new LocalPrivateKeySignatureProvider($bundle['pkey']);
+        $cms = (new DetachedCmsAssembler)->assemble('payload', $bundle['cert'], $provider);
+        $oid = Der::objectIdentifier('1.2.840.10045.4.3.2');
+
+        self::assertStringContainsString(Der::sequence($oid), $cms);
+        self::assertStringNotContainsString(Der::sequence($oid.Der::null()), $cms);
+    }
+
+    public function test_complete_includes_the_available_certificate_chain(): void
+    {
+        $signer = Pkcs12Fixture::load();
+        $chainCertificate = $this->selfSignedEc()['cert'];
+        $provider = new LocalPrivateKeySignatureProvider($signer['pkey']);
+        $cms = (new DetachedCmsAssembler)->assemble(
+            'payload',
+            $signer['cert'],
+            $provider,
+            certificateChainPem: [$chainCertificate],
+        );
+
+        self::assertStringContainsString(X509Certificate::fromPem($chainCertificate)->der, $cms);
+    }
+
+    public function test_complete_rejects_a_prepared_algorithm_that_is_incompatible_with_the_certificate(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $prepared = (new DetachedCmsAssembler)->prepare('payload', $bundle['cert']);
+
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('is not compatible with the rsa certificate key');
+
+        (new DetachedCmsAssembler)->complete(new PreparedDetachedCms(
+            $prepared->certificatePem,
+            $prepared->signedAttributes,
+            $prepared->digestAlgorithm,
+            SignatureAlgorithm::Ecdsa,
+        ), new SignatureValue('signature'));
     }
 
     /**

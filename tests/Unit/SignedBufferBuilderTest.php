@@ -9,16 +9,13 @@ use SignerPHP\PdfCore\Buffer;
 use SignerPHP\PdfCore\PdfDocument;
 use SignerPHP\PdfCore\SignatureObject;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
-use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
 use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
-use SignerPHP\PdfSigner\Application\DTO\SignPdfRequestDto;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
-use SignerPHP\PdfSigner\Domain\ValueObject\VerifiedCertificate;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\LongTermValidationApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
@@ -205,19 +202,12 @@ final class SignedBufferBuilderTest extends TestCase
     private function makeContext(SignatureProfile $profile, ?TimestampOptionsDto $timestamp): SigningContextDto
     {
         return new SigningContextDto(
-            request: new SignPdfRequestDto(
-                pdf: new PdfContentDto('%PDF'),
-                certificate: new CertificateCredentialsDto('/tmp/cert.pfx', 'secret'),
-                options: new SigningOptionsDto(
-                    timestamp: $timestamp,
-                    signatureProfile: $profile,
-                ),
+            pdf: new PdfContentDto('%PDF'),
+            options: new SigningOptionsDto(
+                timestamp: $timestamp,
+                signatureProfile: $profile,
             ),
-            verifiedCertificate: new VerifiedCertificate(
-                credentials: new CertificateCredentialsDto('/tmp/cert.pfx', 'secret'),
-                parsed: ['validTo_time_t' => PHP_INT_MAX],
-                bundle: ['cert' => '', 'pkey' => ''],
-            ),
+            certificate: new \SignerPHP\PdfSigner\Application\DTO\SigningCertificateDto(''),
         );
     }
 

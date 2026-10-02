@@ -8,8 +8,8 @@ use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\Contract\CertificateValidatorInterface;
 use SignerPHP\PdfSigner\Application\Contract\PdfSigningEngineInterface;
 use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
+use SignerPHP\PdfSigner\Application\DTO\LocalSigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
-use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto;
 use SignerPHP\PdfSigner\Application\DTO\SignPdfRequestDto;
 use SignerPHP\PdfSigner\Application\Service\PdfSigningService;
@@ -33,9 +33,9 @@ final class PdfSigningServiceTest extends TestCase
 
         $engine = new class implements PdfSigningEngineInterface
         {
-            public ?SigningContextDto $context = null;
+            public ?LocalSigningContextDto $context = null;
 
-            public function sign(SigningContextDto $context): string
+            public function sign(LocalSigningContextDto $context): string
             {
                 $this->context = $context;
 
@@ -55,6 +55,6 @@ final class PdfSigningServiceTest extends TestCase
 
         self::assertSame('signed-content', $result);
         self::assertSame('/tmp/cert.pfx', $validator->received?->certificatePath);
-        self::assertSame('pdf-content', $engine->context?->request->pdf->content);
+        self::assertSame('pdf-content', $engine->context?->signingContext->pdf->content);
     }
 }

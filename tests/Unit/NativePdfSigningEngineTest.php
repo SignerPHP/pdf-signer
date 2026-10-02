@@ -11,8 +11,10 @@ use SignerPHP\PdfCore\PdfDocument;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderFactoryInterface;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
+use SignerPHP\PdfSigner\Application\DTO\LocalSigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
+use SignerPHP\PdfSigner\Application\DTO\SigningCertificateDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
@@ -194,7 +196,7 @@ final class NativePdfSigningEngineTest extends TestCase
         $engine->sign($this->buildContext('invalid-pdf-content'));
     }
 
-    private function buildContext(string $pdfContent): SigningContextDto
+    private function buildContext(string $pdfContent): LocalSigningContextDto
     {
         $request = new SignPdfRequestDto(
             new PdfContentDto($pdfContent),
@@ -202,8 +204,12 @@ final class NativePdfSigningEngineTest extends TestCase
             SigningOptionsDto::empty(),
         );
 
-        return new SigningContextDto(
-            $request,
+        return new LocalSigningContextDto(
+            new SigningContextDto(
+                $request->pdf,
+                $request->options,
+                new SigningCertificateDto('c'),
+            ),
             new VerifiedCertificate($request->certificate, ['validTo_time_t' => PHP_INT_MAX], ['cert' => 'c', 'pkey' => 'p', 'extracerts' => '']),
         );
     }

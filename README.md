@@ -99,6 +99,37 @@ $signedPdf = Signer::signer()
  ->sign();
 ```
 
+### External signing lifecycle
+
+Use the prepare/complete lifecycle when a private key is held by another process, HSM, or signing service. Preparation returns the exact CMS signed attributes and their digest together with an opaque, serializable state. The external signer must return a binary RSA PKCS#1 v1.5 signature or DER-encoded ECDSA signature, as indicated by the payload; CMS/PAdES assembly remains inside this library.
+
+```php
+use SignerPHP\PdfSigner\Presentation\Signer;
+
+$prepared = Signer::externalSigner()
+    ->withPdfContent(file_get_contents('/tmp/input.pdf'))
+    ->withCertificate(file_get_contents('/tmp/certificate.pem'))
+    ->withPadesBaselineB()
+    ->prepare();
+
+// Persist $prepared->state when the external operation is asynchronous.
+// Inspect $prepared->payload for the input, encoding and algorithms required.
+$rawSignature = $externalSigner->sign(
+    $prepared->payload->input(),
+    $prepared->payload->inputType,
+    $prepared->payload->digestAlgorithm,
+    $prepared->payload->signatureAlgorithm,
+    $prepared->payload->signatureEncoding,
+);
+
+$signedPdf = Signer::externalSigner()->complete(
+    $prepared->state,
+    $rawSignature,
+);
+```
+
+`completeBase64()` accepts a base64-encoded raw signature. The prepared state contains the unsigned PDF and public certificate, but never a private key. Store it with the same access controls used for the source document.
+
 ### 2) Signature with metadata
 
 ```php
