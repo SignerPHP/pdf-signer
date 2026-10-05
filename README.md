@@ -130,6 +130,53 @@ $signedPdf = Signer::externalSigner()->complete(
 
 `completeBase64()` accepts a base64-encoded raw signature. The prepared state contains the unsigned PDF and public certificate, but never a private key. Store it with the same access controls used for the source document.
 
+#### VIDaaS cloud certificates
+
+The VIDaaS module keeps OAuth, certificate discovery and RAW signing isolated behind provider-neutral remote-signing contracts. The access token authorizes use of the cloud-held private key; certificate discovery returns the public certificate and its remote identifier.
+
+```php
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\CurlHttpClient;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasAuthorization;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasCertificateDiscovery;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasClient;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasPkce;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Vidaas\VidaasSignatureProvider;
+use SignerPHP\PdfSigner\Presentation\Signer;
+
+$verifier = VidaasPkce::generateVerifier();
+$http = new CurlHttpClient();
+$authorization = new VidaasAuthorization($http, $clientId, $clientSecret);
+$authorizationUrl = $authorization->authorizationUrl(
+    codeChallenge: VidaasPkce::challenge($verifier),
+    redirectUri: $callbackUrl,
+    state: $state,
+);
+
+// After the authorization callback:
+$token = $authorization->exchangeAuthorizationCode(
+    $authorizationCode,
+    $verifier,
+    $callbackUrl,
+);
+$client = new VidaasClient($token->value, $http);
+$certificate = (new VidaasCertificateDiscovery($client))->certificates()[0];
+
+$builder = Signer::externalSigner()
+    ->withPdfContent($pdf)
+    ->withCertificate(
+        $certificate->certificate->certificatePem,
+        $certificate->certificate->chainPem,
+    )
+    ->withPadesBaselineB();
+$prepared = $builder->prepare();
+$signature = (new VidaasSignatureProvider($client))->sign($prepared->payload, $certificate);
+$signedPdf = $builder->complete($prepared->state, $signature->bytes);
+```
+
+When discovery returns more than one certificate, present their remote identifiers to the user and pass the selected `RemoteCertificate` through the same flow.
+
+For mobile approval, call `startPush()` with the certificate holder's CPF, poll `pollPush()` until its result is approved, then pass its `authorizationToken` to `exchangePushAuthorizationToken()`. A runnable example covering QR Code, push, certificate selection, and PDF signing is available in [`examples/providers/vidaas`](examples/providers/vidaas).
+
 ### 2) Signature with metadata
 
 ```php
