@@ -97,6 +97,10 @@ $signedPdf = Signer::signer()
  ->sign();
 ```
 
+#### Certificados em nuvem pelo IntegraICP
+
+O adaptador IntegraICP v3 oferece autorização S256, consulta de provedores, descoberta do certificado autorizado e assinatura RAW pelos contratos de assinatura remota. Consulte o [guia de integração](docs/integraicp.md) para o exemplo completo e os requisitos de produção.
+
 ### 2) Assinatura com metadados
 
 ```php

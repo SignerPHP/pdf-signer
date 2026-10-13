@@ -177,6 +177,10 @@ When discovery returns more than one certificate, present their remote identifie
 
 For mobile approval, call `startPush()` with the certificate holder's CPF, poll `pollPush()` until its result is approved, then pass its `authorizationToken` to `exchangePushAuthorizationToken()`. A runnable example covering QR Code, push, certificate selection, and PDF signing is available in [`examples/providers/vidaas`](examples/providers/vidaas).
 
+#### IntegraICP cloud certificates
+
+The IntegraICP v3 adapter supports S256 authorization, provider clearances, authorized certificate discovery and RAW signing through the same remote-signing contracts. See [the integration guide](docs/integraicp.md) for a complete example and production requirements.
+
 ### 2) Signature with metadata
 
 ```php
