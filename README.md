@@ -32,6 +32,8 @@ If you need backend PDF signing with cryptographic validity, this library provid
 - PAdES Baseline-T profile mode (PAdES-B + required timestamp)
 - PAdES Baseline-LT profile mode (PAdES-T + embedded DSS/Certs)
 - PAdES Baseline-LTA profile mode (PAdES-LT + extra archival timestamp)
+
+See [CMS attributes and profile limitations](docs/pades-cms-profiles.md) for precise coverage and conformance evidence.
 - Multiple signatures in the same document
 - Optional RFC3161 timestamping
 - RFC3161 timestamping with public default TSA when enabled (`withTimestamp()`)
@@ -902,6 +904,18 @@ php bin/signer-sign --help
 ```bash
 vendor/bin/pest --configuration phpunit.xml tests
 ```
+
+The visible-signature tests require PHP GD. For independent PAdES checks, install Python 3,
+`openssl` and the test-only validator (`python3 -m pip install -r tests/Conformance/requirements.txt`), then run:
+
+```bash
+composer tests:conformance
+```
+
+The conformance command creates disposable RSA/EC certificates, signs PDF basic and
+PAdES B-B documents synchronously, and completes external PAdES signatures in a
+separate process. It verifies PDF/CMS structure, digest, signer-certificate binding,
+cryptographic integrity and trust with pyHanko. No production Python dependency is added.
 
 ## Code quality
 

@@ -30,6 +30,8 @@ Se você precisa assinar PDFs no backend com validade criptográfica, esta bibli
 - Perfil PAdES Baseline-T (PAdES-B + timestamp obrigatório)
 - Perfil PAdES Baseline-LT (PAdES-T + DSS/Certs embutidos)
 - Perfil PAdES Baseline-LTA (PAdES-LT + timestamp arquivístico adicional)
+
+Consulte [atributos CMS e limitações de perfis](docs/pades-cms-profiles.md) para a cobertura e as evidências de conformidade.
 - Múltiplas assinaturas no mesmo documento
 - Carimbo de tempo RFC3161 opcional
 - Carimbo de tempo RFC3161 com TSA público padrão quando habilitado (`withTimestamp()`)
@@ -736,6 +738,19 @@ php bin/signer-sign --help
 ```bash
 vendor/bin/pest --configuration phpunit.xml tests
 ```
+
+Os testes de aparência visual exigem a extensão PHP GD. Para a validação PAdES independente,
+instale Python 3, `openssl` e o validador exclusivo dos testes
+(`python3 -m pip install -r tests/Conformance/requirements.txt`) e execute:
+
+```bash
+composer tests:conformance
+```
+
+O comando gera certificados RSA/EC descartáveis, testa PDF básico e PAdES B-B
+síncronos e conclui assinaturas PAdES externas em um segundo processo.
+O pyHanko verifica os dados PDF/CMS, a associação do certificado,
+a integridade criptográfica e a cadeia de confiança com certificados locais.
 
 ## Qualidade de código
 

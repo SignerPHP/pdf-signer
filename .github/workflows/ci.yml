@@ -23,6 +23,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
+          extensions: gd
           coverage: none
           tools: composer:v2
 
@@ -65,6 +66,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
+          extensions: gd
           coverage: pcov
           tools: composer:v2
 
@@ -95,6 +97,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
+          extensions: gd
           coverage: none
           tools: composer:v2
 
@@ -114,6 +117,37 @@ jobs:
       - name: Run inspect and visible-signature contract tests
         run: vendor/bin/pest --testsuite signing-contracts
 
+  pades-conformance:
+    name: Independent PAdES Conformance (RSA and ECDSA)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: gd
+          coverage: none
+          tools: composer:v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: tests/Conformance/requirements.txt
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Install independent validator
+        run: python3 -m pip install --requirement tests/Conformance/requirements.txt
+
+      - name: Verify PAdES, PDF basic, and process-separated external signing
+        run: composer tests:conformance
+
   mutation:
     name: Mutation Tests (Infection)
     runs-on: ubuntu-latest
@@ -126,6 +160,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
+          extensions: gd
           coverage: pcov
           tools: composer:v2
 
