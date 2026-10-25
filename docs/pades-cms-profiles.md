@@ -29,14 +29,15 @@ of the serialized state are preserved across process restarts.
 
 ## Independent conformance evidence
 
-Run `composer tests:conformance` after installing the test-only Python
-requirements (`python3 -m pip install -r tests/Conformance/requirements.txt`).
-This runs disposable RSA and ECDSA fixtures across PDF basic and PAdES B-B,
-with both synchronous and process-separated external signing. The independent
-pyHanko/asn1crypto implementation checks PDF signature structure, UTC claimed
-signing time, `SubFilter`, `ByteRange`, CMS signed attributes, DER certificate
-binding, hash and signature integrity, and locally configured certificate
-trust. OpenSSL performs the external private-key operation.
+Run `composer tests:conformance` using the project's existing Pest/PHPUnit
+test runner and the system `openssl` CLI. These tests also run under the
+`signing-contracts` suite and the regular coverage gate. Disposable RSA and
+ECDSA certificates exercise PDF basic and PAdES B-B, with both synchronous
+signing and external signing completed in a separate process after its
+private key has been removed. OpenSSL independently verifies CMS cryptography,
+local test-certificate trust, ASN.1 signed attributes and DER certificate hash
+binding; PHP assertions check PDF `SubFilter`, `/M`, `ByteRange` and the signed
+content digest. No additional programming-language runtime is required.
 
 This is a targeted automated conformance contract, **not** an accredited
 profile-conformance certificate. PAdES B-T additionally requires valid trusted

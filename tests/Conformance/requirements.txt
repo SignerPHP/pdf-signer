@@ -1,2 +1,0 @@
-# Independent PDF/CMS implementation used only in the conformance job.
-pyHanko==0.38.0

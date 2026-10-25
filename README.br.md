@@ -739,18 +739,20 @@ php bin/signer-sign --help
 vendor/bin/pest --configuration phpunit.xml tests
 ```
 
-Os testes de aparência visual exigem a extensão PHP GD. Para a validação PAdES independente,
-instale Python 3, `openssl` e o validador exclusivo dos testes
-(`python3 -m pip install -r tests/Conformance/requirements.txt`) e execute:
+Os testes de aparência visual exigem PHP GD. Os testes de conformidade PAdES
+utilizam o mesmo Pest/PHPUnit do projeto, além do executável `openssl`:
 
 ```bash
 composer tests:conformance
 ```
 
-O comando gera certificados RSA/EC descartáveis, testa PDF básico e PAdES B-B
-síncronos e conclui assinaturas PAdES externas em um segundo processo.
-O pyHanko verifica os dados PDF/CMS, a associação do certificado,
-a integridade criptográfica e a cadeia de confiança com certificados locais.
+Eles também são executados por `composer tests:coverage` e pela suíte
+`signing-contracts` da CI. O teste gera certificados RSA/EC descartáveis,
+assina PDFs básicos e PAdES B-B, e conclui assinaturas externas em outro
+processo, após excluir a chave privada. O OpenSSL verifica independentemente
+as assinaturas CMS, os certificados, os atributos ASN.1 e os hashes; as
+asserções PHP verificam `ByteRange`, `SubFilter` e `/M`. Não há dependências
+adicionais de linguagem ou de produção.
 
 ## Qualidade de código
 

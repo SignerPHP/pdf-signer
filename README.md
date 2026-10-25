@@ -905,17 +905,21 @@ php bin/signer-sign --help
 vendor/bin/pest --configuration phpunit.xml tests
 ```
 
-The visible-signature tests require PHP GD. For independent PAdES checks, install Python 3,
-`openssl` and the test-only validator (`python3 -m pip install -r tests/Conformance/requirements.txt`), then run:
+The visible-signature tests require PHP GD. Independent PAdES contract tests run
+under the existing Pest/PHPUnit runner and use the system `openssl` executable:
 
 ```bash
 composer tests:conformance
 ```
 
-The conformance command creates disposable RSA/EC certificates, signs PDF basic and
-PAdES B-B documents synchronously, and completes external PAdES signatures in a
-separate process. It verifies PDF/CMS structure, digest, signer-certificate binding,
-cryptographic integrity and trust with pyHanko. No production Python dependency is added.
+These tests are also included in `composer tests:coverage` and the CI
+`signing-contracts` suite. They generate disposable RSA/EC certificates, sign
+basic PDF and PAdES B-B synchronously, and complete external PAdES signatures
+after the preparation process has exited and the private key has been removed.
+OpenSSL independently verifies CMS signatures, certificate trust, ASN.1
+attributes and certificate hashes; PHP assertions verify PDF `ByteRange`,
+`SubFilter` and the `/M` dictionary entry. No additional language runtime or
+production dependency is required.
 
 ## Code quality
 

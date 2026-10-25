@@ -34,7 +34,7 @@ foreach (['rsa', 'ec'] as $keyType) {
             throw new RuntimeException('Cannot generate '.$keyType.' private key.');
         }
         $csr = openssl_csr_new(['CN' => 'SignerPHP conformance '.$keyType], $key, ['digest_alg' => 'sha256']);
-        $cert = $csr === false ? false : openssl_csr_sign($csr, null, $key, 1, ['digest_alg' => 'sha256']);
+        $cert = $csr === false ? false : openssl_csr_sign($csr, null, $key, 1, ['digest_alg' => 'sha256'], random_int(2, 2147483647));
         if ($cert === false || ! openssl_x509_export($cert, $certPem) || ! openssl_pkey_export($key, $privateKey)) {
             throw new RuntimeException('Cannot issue conformance test certificate.');
         }
