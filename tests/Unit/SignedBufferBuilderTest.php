@@ -19,6 +19,7 @@ use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\LongTermValidationApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProfileAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\XrefContentResolverInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignatureHandler;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignedBufferBuilder;
@@ -73,11 +74,16 @@ final class SignedBufferBuilderTest extends TestCase
                     return new Buffer('XREF');
                 }
             },
-            new class implements Pkcs7SignerInterface
+            new class implements ProfileAwarePkcs7SignerInterface
             {
                 public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
                 {
                     return 'ABCD';
+                }
+
+                public function signWithProfile(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile): string
+                {
+                    return $this->sign($signableDocument, $signatureProvider, $certificatePem);
                 }
             },
             new class($calls) implements DocumentTimestampApplierInterface
@@ -131,11 +137,16 @@ final class SignedBufferBuilderTest extends TestCase
                     return new Buffer('XREF');
                 }
             },
-            new class implements Pkcs7SignerInterface
+            new class implements ProfileAwarePkcs7SignerInterface
             {
                 public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
                 {
                     return 'ABCD';
+                }
+
+                public function signWithProfile(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile): string
+                {
+                    return $this->sign($signableDocument, $signatureProvider, $certificatePem);
                 }
             },
             new class($calls) implements DocumentTimestampApplierInterface
@@ -167,6 +178,65 @@ final class SignedBufferBuilderTest extends TestCase
         self::assertSame(2, $calls->timestampCalls);
         self::assertSame(1, $calls->ltvCalls);
         self::assertStringContainsString('|T|LT|T', $result->raw());
+    }
+
+    public function test_basic_signing_preserves_legacy_pkcs7_signer_integration(): void
+    {
+        $builder = new SignedBufferBuilder(
+            new class implements XrefContentResolverInterface
+            {
+                public function resolve(PdfDocument $pdfDocument, array $objectOffsets, int $xrefOffset): Buffer
+                {
+                    return new Buffer('XREF');
+                }
+            },
+            new class implements Pkcs7SignerInterface
+            {
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
+                {
+                    return 'ABCD';
+                }
+            },
+        );
+
+        $result = $builder->build(
+            $this->makePdfDocumentForSigning(),
+            $this->makeSignatureHandlerWithCertificate(),
+            $this->makeContext(SignatureProfile::PdfBasic, null),
+            $this->makeProvider(),
+        );
+
+        self::assertStringContainsString('XREF', $result->raw());
+    }
+
+    public function test_pades_does_not_silently_use_a_profile_unaware_signer(): void
+    {
+        $builder = new SignedBufferBuilder(
+            new class implements XrefContentResolverInterface
+            {
+                public function resolve(PdfDocument $pdfDocument, array $objectOffsets, int $xrefOffset): Buffer
+                {
+                    return new Buffer('XREF');
+                }
+            },
+            new class implements Pkcs7SignerInterface
+            {
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
+                {
+                    return 'ABCD';
+                }
+            },
+        );
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('PAdES signing requires a profile-aware CMS signer.');
+
+        $builder->build(
+            $this->makePdfDocumentForSigning(),
+            $this->makeSignatureHandlerWithCertificate(),
+            $this->makeContext(SignatureProfile::PadesBaselineB, null),
+            $this->makeProvider(),
+        );
     }
 
     private function makePdfDocumentForSigning(): PdfDocument
