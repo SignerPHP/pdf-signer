@@ -9,6 +9,7 @@
             <directory suffix="Test.php">./tests</directory>
         </testsuite>
         <testsuite name="signing-contracts">
+            <file>./tests/Conformance/PadesCmsConformanceTest.php</file>
             <file>./tests/E2E/PdfGoldenContractTest.php</file>
             <file>./tests/E2E/VisibleAppearanceE2ETest.php</file>
             <file>./tests/E2E/VisibleSignatureScenariosE2ETest.php</file>

@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
@@ -40,6 +41,61 @@ final class DetachedCmsAssemblerTest extends TestCase
 
         self::assertNotSame('', $cms);
         self::assertTrue(Pkcs12Fixture::cmsVerifies($cms, $payload), 'Detached CMS must verify against the signed PDF bytes.');
+    }
+
+    public function test_pades_baseline_has_ess_certificate_reference_without_cms_signing_time(): void
+    {
+        $rsa = Pkcs12Fixture::load();
+        foreach ([SignatureProfile::PadesBaselineB, SignatureProfile::PadesBaselineT, SignatureProfile::PadesBaselineLT, SignatureProfile::PadesBaselineLTA] as $profile) {
+            foreach ([$rsa, $this->selfSignedEc()] as $bundle) {
+                $provider = new LocalPrivateKeySignatureProvider($bundle['pkey']);
+                foreach ([HashAlgorithm::Sha1, HashAlgorithm::Sha224, HashAlgorithm::Sha256, HashAlgorithm::Sha384, HashAlgorithm::Sha512] as $algorithm) {
+                    $assembler = new DetachedCmsAssembler;
+                    $prepared = $assembler->prepare('payload', $bundle['cert'], $algorithm, profile: $profile);
+                    $certificate = X509Certificate::fromPem($bundle['cert']);
+                    $v2 = $algorithm !== HashAlgorithm::Sha1;
+                    $oid = Der::objectIdentifier($v2 ? '1.2.840.113549.1.9.16.2.47' : '1.2.840.113549.1.9.16.2.12');
+                    self::assertStringContainsString($oid, $prepared->signedAttributes);
+                    self::assertStringContainsString(hash($algorithm->value, $certificate->der, true), $prepared->signedAttributes);
+                    self::assertStringNotContainsString(Der::objectIdentifier('1.2.840.113549.1.9.5'), $prepared->signedAttributes);
+                    self::assertStringContainsString(Der::objectIdentifier('1.2.840.113549.1.9.3'), $prepared->signedAttributes);
+                    self::assertStringContainsString(Der::objectIdentifier('1.2.840.113549.1.9.4'), $prepared->signedAttributes);
+                    $cms = $assembler->complete($prepared, $provider->sign(new SigningPayload($prepared->signedAttributes, $algorithm)));
+                    self::assertTrue(Pkcs12Fixture::cmsVerifies($cms, 'payload'));
+                }
+            }
+        }
+    }
+
+    public function test_openssl_independently_decodes_pades_signed_attributes(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $provider = new LocalPrivateKeySignatureProvider($bundle['pkey']);
+        $cms = (new DetachedCmsAssembler)->assemble('payload', $bundle['cert'], $provider, profile: SignatureProfile::PadesBaselineB);
+        $filename = tempnam(sys_get_temp_dir(), 'pades-cms-');
+        self::assertNotFalse($filename);
+        try {
+            file_put_contents($filename, $cms);
+            $output = [];
+            $exitCode = -1;
+            exec('openssl cms -inform DER -in '.escapeshellarg($filename).' -cmsout -print 2>&1', $output, $exitCode);
+            self::assertSame(0, $exitCode, implode("\n", $output));
+            $decoded = implode("\n", $output);
+            self::assertStringContainsString('id-smime-aa-signingCertificateV2', $decoded);
+            self::assertStringNotContainsString('object: signingTime', $decoded);
+            self::assertStringContainsString('object: contentType', $decoded);
+            self::assertStringContainsString('object: messageDigest', $decoded);
+        } finally {
+            unlink($filename);
+        }
+    }
+
+    public function test_basic_profile_preserves_cms_signing_time(): void
+    {
+        $certificate = Pkcs12Fixture::load()['cert'];
+        $attributes = (new DetachedCmsAssembler)->prepare('payload', $certificate)->signedAttributes;
+        self::assertStringContainsString(Der::objectIdentifier('1.2.840.113549.1.9.5'), $attributes);
+        self::assertStringNotContainsString(Der::objectIdentifier('1.2.840.113549.1.9.16.2.47'), $attributes);
     }
 
     public function test_assemble_throws_when_provider_returns_empty_signature(): void

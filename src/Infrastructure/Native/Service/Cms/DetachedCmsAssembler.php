@@ -7,6 +7,7 @@ namespace SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
@@ -23,6 +24,10 @@ final class DetachedCmsAssembler
 
     private const OID_SIGNING_TIME = '1.2.840.113549.1.9.5';
 
+    private const OID_SIGNING_CERTIFICATE = '1.2.840.113549.1.9.16.2.12';
+
+    private const OID_SIGNING_CERTIFICATE_V2 = '1.2.840.113549.1.9.16.2.47';
+
     public function assemble(
         string $dataToSign,
         string $certificatePem,
@@ -30,8 +35,9 @@ final class DetachedCmsAssembler
         HashAlgorithm $algorithm = HashAlgorithm::Sha256,
         ?\DateTimeInterface $signingTime = null,
         array $certificateChainPem = [],
+        SignatureProfile $profile = SignatureProfile::PdfBasic,
     ): string {
-        $prepared = $this->prepare($dataToSign, $certificatePem, $algorithm, $signingTime, $certificateChainPem);
+        $prepared = $this->prepare($dataToSign, $certificatePem, $algorithm, $signingTime, $certificateChainPem, $profile);
         $signature = $signatureProvider->sign(new SigningPayload($prepared->signedAttributes, $algorithm));
 
         return $this->complete($prepared, $signature);
@@ -43,13 +49,14 @@ final class DetachedCmsAssembler
         HashAlgorithm $algorithm = HashAlgorithm::Sha256,
         ?\DateTimeInterface $signingTime = null,
         array $certificateChainPem = [],
+        SignatureProfile $profile = SignatureProfile::PdfBasic,
     ): PreparedDetachedCms {
         $certificate = X509Certificate::fromPem($certificatePem);
         $digest = hash($algorithm->value, $dataToSign, true);
 
         return new PreparedDetachedCms(
             $certificatePem,
-            $this->signedAttributesSet($digest, $signingTime ?? new \DateTimeImmutable('now')),
+            $this->signedAttributesSet($digest, $signingTime ?? new \DateTimeImmutable('now'), $certificate, $algorithm, $profile),
             $algorithm,
             $certificate->keyType() === 'ec' ? SignatureAlgorithm::Ecdsa : SignatureAlgorithm::RsaPkcs1V15,
             $certificateChainPem,
@@ -96,7 +103,7 @@ final class DetachedCmsAssembler
         );
     }
 
-    private function signedAttributesSet(string $messageDigest, \DateTimeInterface $signingTime): string
+    private function signedAttributesSet(string $messageDigest, \DateTimeInterface $signingTime, X509Certificate $certificate, HashAlgorithm $algorithm, SignatureProfile $profile): string
     {
         $attributes = [
             Der::sequence(
@@ -104,14 +111,35 @@ final class DetachedCmsAssembler
                 .Der::set(Der::objectIdentifier(self::OID_DATA))
             ),
             Der::sequence(
-                Der::objectIdentifier(self::OID_SIGNING_TIME)
-                .Der::set(Der::utcTime($signingTime))
-            ),
-            Der::sequence(
                 Der::objectIdentifier(self::OID_MESSAGE_DIGEST)
                 .Der::set(Der::octetString($messageDigest))
             ),
         ];
+        if ($profile === SignatureProfile::PdfBasic) {
+            $attributes[] = Der::sequence(
+                Der::objectIdentifier(self::OID_SIGNING_TIME)
+                .Der::set(Der::utcTime($signingTime))
+            );
+        } else {
+            // RFC 5035 ESSCertIDv2 hashes the complete DER-encoded certificate.
+            // SHA-1 instead uses the RFC 2634 ESSCertID attribute.
+            $v2 = $algorithm !== HashAlgorithm::Sha1;
+            $certHash = Der::octetString(hash($algorithm->value, $certificate->der, true));
+            $issuerSerial = Der::sequence(
+                Der::sequence(Der::contextSpecific(4, $certificate->issuerNameDer))
+                .$certificate->serialIntegerDer
+            );
+            $essCertId = Der::sequence(
+                ($v2 && $algorithm !== HashAlgorithm::Sha256
+                    ? Der::algorithmIdentifier($this->digestOid($algorithm))
+                    : '')
+                .$certHash.$issuerSerial
+            );
+            $attributes[] = Der::sequence(
+                Der::objectIdentifier($v2 ? self::OID_SIGNING_CERTIFICATE_V2 : self::OID_SIGNING_CERTIFICATE)
+                .Der::set(Der::sequence(Der::sequence($essCertId)))
+            );
+        }
         sort($attributes, SORT_STRING);
 
         return Der::set(implode('', $attributes));
