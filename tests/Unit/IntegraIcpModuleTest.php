@@ -21,10 +21,10 @@ use SignerPHP\PdfSigner\RemoteSigning\DTO\RemoteCertificate;
 use SignerPHP\PdfSigner\Tests\Support\PdfFixtureFactory;
 use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
 
-it('encodes callback context with S256 without sending the verifier', function (): void {
+it('preserves the fixed registered callback with S256 without sending the verifier', function (): void {
     $verifier = IntegraIcpPkce::generateVerifier();
     $auth = new IntegraIcpAuthorization(new IntegraIcpClient('channel', integraHttp(fn () => integraResponse([]))));
-    $callback = 'https://client.example/callback?state=opaque&request=123';
+    $callback = 'https://client.example/callback';
     $url = $auth->authorizationUrl(IntegraIcpPkce::challenge($verifier), $callback, '52998224725');
     parse_str(parse_url($url, PHP_URL_QUERY), $query);
     expect($verifier)->toHaveLength(43)
@@ -157,6 +157,36 @@ it('refuses pending and substituted signing responses', function (string $failur
     $payload = new ExternalSigningPayload(base64_encode(random_bytes(32)), SigningInputType::Digest, HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::RsaPkcs1);
     expect(fn () => $provider->sign($payload, $cert))->toThrow(SignerException::class);
 })->with(['pending', 'certificate', 'list', 'id', 'digest', 'base64']);
+
+it('verifies RAW signatures against the original digest and authorized RSA certificate', function (string $response): void {
+    $bundle = Pkcs12Fixture::load();
+    $content = 'Document signing input';
+    $digest = hash('sha256', $content, true);
+    // Sign original input independently; the provider receives only its digest.
+    openssl_sign($content, $valid, $bundle['pkey'], OPENSSL_ALGO_SHA256);
+    openssl_sign('Different input', $other, $bundle['pkey'], OPENSSL_ALGO_SHA256);
+    $bytes = match ($response) {
+        'valid' => $valid,
+        'arbitrary' => 'not a signature',
+        'sized' => str_repeat("\0", strlen($valid)),
+        'wrong digest' => $other,
+    };
+    $http = integraHttp(function ($method, $url, $headers, $body) use ($bundle, $bytes) {
+        $item = json_decode($body, true, flags: JSON_THROW_ON_ERROR)['requests'][0];
+
+        return integraResponse(['executionStatus' => ['currentStatus' => 'COMPLETED_WITH_SUCCESS'],
+            'certificateInformation' => ['encodedX509' => $bundle['cert']],
+            'signatures' => [$item + ['signedContent' => base64_encode($bytes)]]]);
+    });
+    $provider = new IntegraIcpSignatureProvider(new IntegraIcpClient('c', $http), 'credential', str_repeat('a', 43));
+    $certificate = new RemoteCertificate('credential', new SigningCertificateDto($bundle['cert']));
+    $payload = new ExternalSigningPayload(base64_encode($digest), SigningInputType::Digest, HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::RsaPkcs1);
+    if ($response === 'valid') {
+        expect($provider->sign($payload, $certificate)->bytes)->toBe($valid);
+    } else {
+        expect(fn () => $provider->sign($payload, $certificate))->toThrow(SignerException::class, 'invalid RAW signature');
+    }
+})->with(['valid', 'arbitrary', 'sized', 'wrong digest']);
 
 function integraResponse(array $data): HttpResponse
 {

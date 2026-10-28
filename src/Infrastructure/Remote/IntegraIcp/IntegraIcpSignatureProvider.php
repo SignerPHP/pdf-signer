@@ -55,11 +55,11 @@ final readonly class IntegraIcpSignatureProvider implements RemoteSignatureProvi
             throw new SignerException('IntegraICP signed with an unexpected certificate.');
         }
 
-        return $this->signature($data, $id, $payload->inputBase64);
+        return $this->signature($data, $id, $payload->inputBase64, $certificate->certificate->certificatePem);
     }
 
     /** @param array<string, mixed> $data */
-    private function signature(array $data, string $id, string $digest): SignatureValue
+    private function signature(array $data, string $id, string $digest, string $certificatePem): SignatureValue
     {
         $items = $data['signatures'] ?? null;
         if (! is_array($items) || ! array_is_list($items) || count($items) !== 1) {
@@ -74,6 +74,17 @@ final readonly class IntegraIcpSignatureProvider implements RemoteSignatureProvi
         $encoded = $item['signedContent'] ?? null;
         $bytes = is_string($encoded) ? base64_decode($encoded, true) : false;
         if ($bytes === false || $bytes === '') {
+            throw new SignerException('IntegraICP returned an invalid RAW signature.');
+        }
+
+        $key = openssl_pkey_get_public($certificatePem);
+        $details = $key === false ? false : openssl_pkey_get_details($key);
+        // Recover the PKCS#1 v1.5 DigestInfo: input is already hashed, so do not hash it again.
+        $digestInfo = hex2bin('3031300d060960864801650304020105000420').base64_decode($digest, true);
+        if ($key === false || $details === false || $details['type'] !== OPENSSL_KEYTYPE_RSA
+            || strlen($bytes) !== (int) ceil($details['bits'] / 8)
+            || ! @openssl_public_decrypt($bytes, $recovered, $key, OPENSSL_PKCS1_PADDING)
+            || ! hash_equals($digestInfo, $recovered)) {
             throw new SignerException('IntegraICP returned an invalid RAW signature.');
         }
 
