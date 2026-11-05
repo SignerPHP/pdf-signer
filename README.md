@@ -32,6 +32,8 @@ If you need backend PDF signing with cryptographic validity, this library provid
 - PAdES Baseline-T profile mode (PAdES-B + required timestamp)
 - PAdES Baseline-LT profile mode (PAdES-T + embedded DSS/Certs)
 - PAdES Baseline-LTA profile mode (PAdES-LT + extra archival timestamp)
+
+See [CMS attributes and profile limitations](docs/pades-cms-profiles.md) for precise coverage and conformance evidence.
 - Multiple signatures in the same document
 - Optional RFC3161 timestamping
 - RFC3161 timestamping with public default TSA when enabled (`withTimestamp()`)
@@ -902,6 +904,22 @@ php bin/signer-sign --help
 ```bash
 vendor/bin/pest --configuration phpunit.xml tests
 ```
+
+The visible-signature tests require PHP GD. Independent PAdES contract tests run
+under the existing Pest/PHPUnit runner and use the system `openssl` executable:
+
+```bash
+composer tests:conformance
+```
+
+These tests are also included in `composer tests:coverage` and the CI
+`signing-contracts` suite. They generate disposable RSA/EC certificates, sign
+basic PDF and PAdES B-B synchronously, and complete external PAdES signatures
+after the preparation process has exited and the private key has been removed.
+OpenSSL independently verifies CMS signatures, certificate trust, ASN.1
+attributes and certificate hashes; PHP assertions verify PDF `ByteRange`,
+`SubFilter` and the `/M` dictionary entry. No additional language runtime or
+production dependency is required.
 
 ## Code quality
 

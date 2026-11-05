@@ -49,6 +49,9 @@ it('prepares serializable state and completes a valid external signature', funct
         ->validate();
 
     expect($pdf)->toStartWith('%PDF-')
+        ->and($pdf)->toContain('/ETSI.CAdES.detached')
+        ->and($pdf)->toContain('/ByteRange')
+        ->and($pdf)->toMatch('/\/M\s*\(/')
         ->and($validation->hasSignatures)->toBeTrue()
         ->and($validation->allValid)->toBeTrue();
 });

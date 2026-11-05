@@ -30,6 +30,8 @@ Se você precisa assinar PDFs no backend com validade criptográfica, esta bibli
 - Perfil PAdES Baseline-T (PAdES-B + timestamp obrigatório)
 - Perfil PAdES Baseline-LT (PAdES-T + DSS/Certs embutidos)
 - Perfil PAdES Baseline-LTA (PAdES-LT + timestamp arquivístico adicional)
+
+Consulte [atributos CMS e limitações de perfis](docs/pades-cms-profiles.md) para a cobertura e as evidências de conformidade.
 - Múltiplas assinaturas no mesmo documento
 - Carimbo de tempo RFC3161 opcional
 - Carimbo de tempo RFC3161 com TSA público padrão quando habilitado (`withTimestamp()`)
@@ -736,6 +738,21 @@ php bin/signer-sign --help
 ```bash
 vendor/bin/pest --configuration phpunit.xml tests
 ```
+
+Os testes de aparência visual exigem PHP GD. Os testes de conformidade PAdES
+utilizam o mesmo Pest/PHPUnit do projeto, além do executável `openssl`:
+
+```bash
+composer tests:conformance
+```
+
+Eles também são executados por `composer tests:coverage` e pela suíte
+`signing-contracts` da CI. O teste gera certificados RSA/EC descartáveis,
+assina PDFs básicos e PAdES B-B, e conclui assinaturas externas em outro
+processo, após excluir a chave privada. O OpenSSL verifica independentemente
+as assinaturas CMS, os certificados, os atributos ASN.1 e os hashes; as
+asserções PHP verificam `ByteRange`, `SubFilter` e `/M`. Não há dependências
+adicionais de linguagem ou de produção.
 
 ## Qualidade de código
 
