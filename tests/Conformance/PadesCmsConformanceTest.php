@@ -99,12 +99,17 @@ final class PadesCmsConformanceTest extends TestCase
         file_put_contents($payloadFile, $content);
 
         // OpenSSL performs the cryptographic verification, independent of SignerPHP.
-        $this->execute([
+        $verification = [
             'openssl', 'cms', '-verify', '-binary', '-inform', 'DER',
             '-in', $cmsFile, '-content', $payloadFile,
             '-CAfile', $directory.'/cert.pem', '-purpose', 'any',
             '-out', '/dev/null',
-        ]);
+        ];
+        // The basic profile is CMS, not CAdES; only the PAdES profiles use -cades.
+        if ($pades && $this->supportsCadesVerification()) {
+            $verification[] = '-cades';
+        }
+        $this->execute($verification);
         $print = $this->execute(['openssl', 'cms', '-cmsout', '-print', '-inform', 'DER', '-in', $cmsFile]);
         self::assertStringContainsString('eContentType: pkcs7-data', $print);
         self::assertStringContainsString('eContent: <ABSENT>', $print);
@@ -124,15 +129,16 @@ final class PadesCmsConformanceTest extends TestCase
 
         if ($pades) {
             self::assertStringNotContainsString('object: signingTime', $attributes);
-            self::assertStringNotContainsString('object: id-smime-aa-signingCertificate (', $attributes);
-            self::assertSame(1, substr_count($attributes, 'object: id-smime-aa-signingCertificateV2'));
+            self::assertSame(0, preg_match('/object:\\s*(?:id-smime-aa-signingCertificate\\s*\\(|1\\.2\\.840\\.113549\\.1\\.9\\.16\\.2\\.12\\b)/', $attributes));
+            self::assertSame(1, preg_match_all('/object:\\s*(?:id-smime-aa-signingCertificateV2|1\\.2\\.840\\.113549\\.1\\.9\\.16\\.2\\.47)\\b/', $attributes));
             $certificateHash = strtoupper(hash('sha256', $this->certificateDer($directory.'/cert.pem')));
             self::assertMatchesRegularExpression(
-                '/OBJECT\s+:id-smime-aa-signingCertificateV2\R(?:[^\r\n]*\R){3,6}[^\r\n]*OCTET STRING\s+\[HEX DUMP\]:'.preg_quote($certificateHash, '/').'\b/',
+                '/OBJECT\s+:(?:id-smime-aa-signingCertificateV2|1\.2\.840\.113549\.1\.9\.16\.2\.47)\R(?:[^\r\n]*\R){3,6}[^\r\n]*OCTET STRING\s+\[HEX DUMP\]:'.preg_quote($certificateHash, '/').'\b/',
                 $asn1,
                 $pdfFile.' must reference the exact DER signer certificate',
             );
-            $issuerDetails = substr($asn1, (int) strpos($asn1, 'id-smime-aa-signingCertificateV2'), 3600);
+            self::assertSame(1, preg_match('/OBJECT\\s+:(?:id-smime-aa-signingCertificateV2|1\\.2\\.840\\.113549\\.1\\.9\\.16\\.2\\.47)\\b/', $asn1, $essOid, PREG_OFFSET_CAPTURE));
+            $issuerDetails = substr($asn1, $essOid[0][1], 3600);
             self::assertStringContainsString('cont [ 4 ]', $issuerDetails);
             self::assertStringContainsString('SignerPHP conformance '.basename($directory), $issuerDetails);
             $serialInfo = $this->execute(['openssl', 'x509', '-in', $directory.'/cert.pem', '-noout', '-serial']);
@@ -145,8 +151,17 @@ final class PadesCmsConformanceTest extends TestCase
             );
         } else {
             self::assertSame(1, substr_count($attributes, 'object: signingTime'));
-            self::assertStringNotContainsString('object: id-smime-aa-signingCertificateV2', $attributes);
+            self::assertSame(0, preg_match('/object:\\s*(?:id-smime-aa-signingCertificateV2|1\\.2\\.840\\.113549\\.1\\.9\\.16\\.2\\.47)\\b/', $attributes));
         }
+    }
+
+    /** LibreSSL distributions may not expose the OpenSSL CAdES verification option. */
+    private function supportsCadesVerification(): bool
+    {
+        $output = [];
+        exec('openssl cms -help 2>&1', $output);
+
+        return str_contains(implode('\\n', $output), '-cades');
     }
 
     private function certificateDer(string $path): string

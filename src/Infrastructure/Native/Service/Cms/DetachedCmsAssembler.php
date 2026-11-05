@@ -131,7 +131,7 @@ final class DetachedCmsAssembler
             );
             $essCertId = Der::sequence(
                 ($v2 && $algorithm !== HashAlgorithm::Sha256
-                    ? Der::algorithmIdentifier($this->digestOid($algorithm))
+                    ? Der::algorithmIdentifier($this->digestOid($algorithm), withNullParameters: false)
                     : '')
                 .$certHash.$issuerSerial
             );
