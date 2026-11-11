@@ -1,6 +1,6 @@
 # BirdID cloud signing
 
-Reference: [BirdID Public API](https://docs.vaultid.com.br/workspace/cloud/api/uso-de-certificado/assinatura-digital). Request `client_id` / `client_secret` from Soluti for your application. Doctors only need their own BirdID cloud certificate; this adapter does **not** use CESS or BirdID Sign.
+Reference: [BirdID Public API](https://docs.vaultid.com.br/workspace/cloud/api/uso-de-certificado/assinatura-digital). Request `client_id` / `client_secret` from Soluti for your application. This adapter does **not** use CESS or BirdID Sign.
 
 This module implements `RemoteCertificateDiscoveryInterface` and `RemoteSignatureProviderInterface`. It requests **RAW SHA-256 / RSA PKCS#1 v1.5** signatures over a **hexadecimal** digest. The library assembles CMS and the final PAdES PDF.
 
