@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
@@ -40,6 +41,124 @@ final class DetachedCmsAssemblerTest extends TestCase
 
         self::assertNotSame('', $cms);
         self::assertTrue(Pkcs12Fixture::cmsVerifies($cms, $payload), 'Detached CMS must verify against the signed PDF bytes.');
+    }
+
+    public function test_pades_baseline_has_ess_certificate_reference_without_cms_signing_time(): void
+    {
+        $rsa = Pkcs12Fixture::load();
+        foreach ([SignatureProfile::PadesBaselineB, SignatureProfile::PadesBaselineT, SignatureProfile::PadesBaselineLT, SignatureProfile::PadesBaselineLTA] as $profile) {
+            foreach ([$rsa, $this->selfSignedEc()] as $bundle) {
+                $provider = new LocalPrivateKeySignatureProvider($bundle['pkey']);
+                foreach ([HashAlgorithm::Sha1, HashAlgorithm::Sha224, HashAlgorithm::Sha256, HashAlgorithm::Sha384, HashAlgorithm::Sha512] as $algorithm) {
+                    $assembler = new DetachedCmsAssembler;
+                    $prepared = $assembler->prepare('payload', $bundle['cert'], $algorithm, profile: $profile);
+                    $certificate = X509Certificate::fromPem($bundle['cert']);
+                    $v2 = $algorithm !== HashAlgorithm::Sha1;
+                    $oid = Der::objectIdentifier($v2 ? '1.2.840.113549.1.9.16.2.47' : '1.2.840.113549.1.9.16.2.12');
+                    self::assertStringContainsString($oid, $prepared->signedAttributes);
+                    self::assertStringContainsString(hash($algorithm->value, $certificate->der, true), $prepared->signedAttributes);
+                    $hashOid = match ($algorithm) {
+                        HashAlgorithm::Sha224 => '2.16.840.1.101.3.4.2.4',
+                        HashAlgorithm::Sha384 => '2.16.840.1.101.3.4.2.2',
+                        HashAlgorithm::Sha512 => '2.16.840.1.101.3.4.2.3',
+                        default => null,
+                    };
+                    if ($hashOid !== null) {
+                        self::assertStringContainsString(Der::algorithmIdentifier($hashOid, withNullParameters: false), $prepared->signedAttributes);
+                        self::assertStringNotContainsString(Der::algorithmIdentifier($hashOid), $prepared->signedAttributes);
+                    }
+                    self::assertStringNotContainsString(Der::objectIdentifier('1.2.840.113549.1.9.5'), $prepared->signedAttributes);
+                    self::assertStringContainsString(Der::objectIdentifier('1.2.840.113549.1.9.3'), $prepared->signedAttributes);
+                    self::assertStringContainsString(Der::objectIdentifier('1.2.840.113549.1.9.4'), $prepared->signedAttributes);
+                    $cms = $assembler->complete($prepared, $provider->sign(new SigningPayload($prepared->signedAttributes, $algorithm)));
+                    self::assertTrue(Pkcs12Fixture::cmsVerifies($cms, 'payload'));
+                }
+            }
+        }
+    }
+
+    public function test_openssl_independently_decodes_pades_signed_attributes(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $provider = new LocalPrivateKeySignatureProvider($bundle['pkey']);
+        $cms = (new DetachedCmsAssembler)->assemble('payload', $bundle['cert'], $provider, profile: SignatureProfile::PadesBaselineB);
+        $filename = tempnam(sys_get_temp_dir(), 'pades-cms-');
+        self::assertNotFalse($filename);
+        try {
+            file_put_contents($filename, $cms);
+            $output = [];
+            $exitCode = -1;
+            exec('openssl cms -inform DER -in '.escapeshellarg($filename).' -cmsout -print 2>&1', $output, $exitCode);
+            self::assertSame(0, $exitCode, implode("\n", $output));
+            $decoded = implode("\n", $output);
+            self::assertMatchesRegularExpression('/object:\\s*(?:id-smime-aa-signingCertificateV2|1\\.2\\.840\\.113549\\.1\\.9\\.16\\.2\\.47)\\b/', $decoded);
+            self::assertStringNotContainsString('object: signingTime', $decoded);
+            self::assertStringContainsString('object: contentType', $decoded);
+            self::assertStringContainsString('object: messageDigest', $decoded);
+        } finally {
+            unlink($filename);
+        }
+    }
+
+    public function test_cades_verifier_rejects_wrong_ess_certificate_hash_even_when_cms_signature_is_valid(): void
+    {
+        $help = [];
+        exec('openssl cms -help 2>&1', $help);
+        if (! str_contains(implode("\n", $help), '-cades')) {
+            self::markTestSkipped('The installed OpenSSL/LibreSSL executable does not support cms -cades.');
+        }
+
+        $bundle = Pkcs12Fixture::load();
+        $assembler = new DetachedCmsAssembler;
+        $prepared = $assembler->prepare('payload', $bundle['cert'], profile: SignatureProfile::PadesBaselineB);
+        $certificate = X509Certificate::fromPem($bundle['cert']);
+        $correctHash = hash('sha256', $certificate->der, true);
+        self::assertSame(1, substr_count($prepared->signedAttributes, $correctHash));
+
+        // Change only the ESS certificate reference, then sign the changed attributes.
+        // The CMS signature remains valid; certificate binding must fail separately.
+        $wrongHash = str_repeat("\x00", 32);
+        $altered = new PreparedDetachedCms(
+            $prepared->certificatePem,
+            str_replace($correctHash, $wrongHash, $prepared->signedAttributes),
+            $prepared->digestAlgorithm,
+            $prepared->signatureAlgorithm,
+            $prepared->certificateChainPem,
+        );
+        $provider = new LocalPrivateKeySignatureProvider($bundle['pkey']);
+        $cms = $assembler->complete($altered, $provider->sign(new SigningPayload($altered->signedAttributes, $altered->digestAlgorithm)));
+
+        $cmsFile = tempnam(sys_get_temp_dir(), 'pades-bad-ess-');
+        $contentFile = tempnam(sys_get_temp_dir(), 'pades-content-');
+        $certFile = tempnam(sys_get_temp_dir(), 'pades-cert-');
+        self::assertNotFalse($cmsFile);
+        self::assertNotFalse($contentFile);
+        self::assertNotFalse($certFile);
+        try {
+            file_put_contents($cmsFile, $cms);
+            file_put_contents($contentFile, 'payload');
+            file_put_contents($certFile, $bundle['cert']);
+            $verify = 'openssl cms -verify -binary -inform DER -in '.escapeshellarg($cmsFile)
+                .' -content '.escapeshellarg($contentFile)
+                .' -CAfile '.escapeshellarg($certFile).' -purpose any -out /dev/null';
+            exec($verify.' 2>&1', $normalOutput, $normalExit);
+            self::assertSame(0, $normalExit, implode("\n", $normalOutput));
+
+            exec($verify.' -cades 2>&1', $cadesOutput, $cadesExit);
+            self::assertNotSame(0, $cadesExit, 'CAdES verification accepted an incorrect ESS certificate reference.');
+        } finally {
+            unlink($cmsFile);
+            unlink($contentFile);
+            unlink($certFile);
+        }
+    }
+
+    public function test_basic_profile_preserves_cms_signing_time(): void
+    {
+        $certificate = Pkcs12Fixture::load()['cert'];
+        $attributes = (new DetachedCmsAssembler)->prepare('payload', $certificate)->signedAttributes;
+        self::assertStringContainsString(Der::objectIdentifier('1.2.840.113549.1.9.5'), $attributes);
+        self::assertStringNotContainsString(Der::objectIdentifier('1.2.840.113549.1.9.16.2.47'), $attributes);
     }
 
     public function test_assemble_throws_when_provider_returns_empty_signature(): void

@@ -15,6 +15,7 @@ use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\LongTermValidationApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProfileAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignedBufferBuilderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\XrefContentResolverInterface;
 
@@ -55,7 +56,14 @@ final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
 
         $signableDocument = new Buffer($docToXref->raw().$signature->toPdfEntry().$docFromXref->raw());
         $certificatePem = $context->certificate->certificatePem;
-        $signatureContents = $this->pkcs7Signer->sign($signableDocument, $signatureProvider, $certificatePem);
+        $profile = $context->options->signatureProfile;
+        if ($this->pkcs7Signer instanceof ProfileAwarePkcs7SignerInterface) {
+            $signatureContents = $this->pkcs7Signer->signWithProfile($signableDocument, $signatureProvider, $certificatePem, $profile);
+        } elseif ($profile === SignatureProfile::PdfBasic) {
+            $signatureContents = $this->pkcs7Signer->sign($signableDocument, $signatureProvider, $certificatePem);
+        } else {
+            throw new \LogicException('PAdES signing requires a profile-aware CMS signer.');
+        }
 
         $signature['Contents'] = new PDFValueHexString($signatureContents);
         $docToXref->data($signature->toPdfEntry());
