@@ -35,6 +35,7 @@ Se você precisa assinar PDFs no backend com validade criptográfica, esta bibli
 - Carimbo de tempo RFC3161 com TSA público padrão quando habilitado (`withTimestamp()`)
 - Proteção de PDF por permissões (ex.: bloquear cópia de conteúdo)
 - Validação de assinaturas digitais já existentes no PDF
+- Provedores de certificado em nuvem (VIDaaS, IntegraICP, BirdID) via assinatura externa
 
 ## Requisitos
 
@@ -100,6 +101,10 @@ $signedPdf = Signer::signer()
 #### Certificados em nuvem pelo IntegraICP
 
 O adaptador IntegraICP v3 oferece autorização S256, consulta de provedores, descoberta do certificado autorizado e assinatura RAW pelos contratos de assinatura remota. Consulte o [guia de integração](docs/integraicp.md) para o exemplo completo e os requisitos de produção.
+
+#### Certificados em nuvem pelo BirdID
+
+O adaptador BirdID cobre descoberta de usuário, OAuth (authorization code), grant por OTP (`pwd_authorize`), descoberta de certificado e assinatura RAW (hash em hexadecimal) pelos mesmos contratos de assinatura remota. A montagem CMS/PAdES fica nesta biblioteca — CESS não é necessário. Consulte o [guia de integração](docs/birdid.md).
 
 ### 2) Assinatura com metadados
 

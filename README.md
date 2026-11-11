@@ -37,6 +37,7 @@ If you need backend PDF signing with cryptographic validity, this library provid
 - RFC3161 timestamping with public default TSA when enabled (`withTimestamp()`)
 - PDF permission protection (for example, block content copying)
 - Validation of existing digital signatures in PDF files
+- Remote cloud certificate providers (VIDaaS, IntegraICP, BirdID) via external signing
 
 ## Requirements
 
@@ -180,6 +181,10 @@ For mobile approval, call `startPush()` with the certificate holder's CPF, poll 
 #### IntegraICP cloud certificates
 
 The IntegraICP v3 adapter supports S256 authorization, provider clearances, authorized certificate discovery and RAW signing through the same remote-signing contracts. See [the integration guide](docs/integraicp.md) for a complete example and production requirements.
+
+#### BirdID cloud certificates
+
+The BirdID adapter covers user discovery, OAuth authorization code, OTP password grant, certificate discovery and RAW signing (hexadecimal digest) through the same remote-signing contracts. CMS/PAdES assembly stays in this library — CESS is not required. See [the integration guide](docs/birdid.md).
 
 ### 2) Signature with metadata
 
