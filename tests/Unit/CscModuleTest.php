@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SignerPHP\PdfSigner\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\DTO\ExternalSigningPayload;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
@@ -24,7 +25,7 @@ use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
 
 final class CscModuleTest extends TestCase
 {
-    public function test_discovers_an_enabled_rsa_certificate_and_uses_csc_v1_http_contract(): void
+    public function test_discovers_a_usable_rsa_certificate_through_the_csc_v1_contract(): void
     {
         $bundle = Pkcs12Fixture::load();
         $calls = [];
@@ -36,21 +37,34 @@ final class CscModuleTest extends TestCase
                 'info' => ['specs' => '1.0.4.0'],
                 'credentials/list' => ['credentialIDs' => ['lab/signer']],
                 'credentials/info' => self::credentialInfo($bundle['cert']),
-                default => throw new \LogicException('unexpected call'),
+                default => throw new \LogicException('Unexpected CSC operation'),
             };
         });
-        $certificates = (new CscCertificateDiscovery($client))->certificates();
-        self::assertCount(1, $certificates);
-        self::assertSame('lab/signer', $certificates[0]->identifier);
-        self::assertSame(openssl_x509_fingerprint($bundle['cert'], 'sha256'), openssl_x509_fingerprint($certificates[0]->certificate->certificatePem, 'sha256'));
+
+        $discovered = (new CscCertificateDiscovery($client))->certificates();
+        self::assertCount(1, $discovered);
+        self::assertSame('lab/signer', $discovered[0]->identifier);
+        self::assertSame(
+            openssl_x509_fingerprint($bundle['cert'], 'sha256'),
+            openssl_x509_fingerprint($discovered[0]->certificate->certificatePem, 'sha256'),
+        );
         self::assertSame(['credentialID' => 'lab/signer', 'certificates' => 'chain'], $calls[2][1]);
     }
 
-    public function test_creates_cryptographically_valid_pades_baseline_b_without_giving_the_pdf_engine_the_private_key(): void
+    public function test_an_empty_credential_list_is_a_valid_discovery_result(): void
+    {
+        $client = self::client(fn ($operation) => $operation === 'info'
+            ? ['specs' => '1.0.4.0'] : ['credentialIDs' => []]);
+
+        self::assertSame([], (new CscCertificateDiscovery($client))->certificates());
+    }
+
+    public function test_signs_a_valid_pades_b_b_pdf_with_only_remote_private_key_access(): void
     {
         $bundle = Pkcs12Fixture::load();
         $calls = [];
-        $client = self::client(function ($operation, $data) use ($bundle, &$calls) {
+        $authorizedHash = null;
+        $client = self::client(function ($operation, $data) use ($bundle, &$calls, &$authorizedHash) {
             $calls[] = $operation;
             if ($operation === 'info') {
                 return ['specs' => '1.0.4.0'];
@@ -62,14 +76,17 @@ final class CscModuleTest extends TestCase
                 self::assertSame('lab/signer', $data['credentialID']);
                 self::assertSame(1, $data['numSignatures']);
                 self::assertCount(1, $data['hash']);
+                $authorizedHash = $data['hash'];
 
                 return ['SAD' => 'synthetic-sad'];
             }
+
             self::assertSame('signatures/signHash', $operation);
             self::assertSame('synthetic-sad', $data['SAD']);
             self::assertSame('1.2.840.113549.1.1.11', $data['signAlgo']);
             self::assertSame('2.16.840.1.101.3.4.2.1', $data['hashAlgo']);
-            self::assertSame(1, count($data['hash']));
+            self::assertSame($authorizedHash, $data['hash']);
+
             $digest = base64_decode($data['hash'][0], true);
             self::assertSame(32, strlen($digest));
             $digestInfo = hex2bin('3031300d060960864801650304020105000420').$digest;
@@ -77,35 +94,42 @@ final class CscModuleTest extends TestCase
 
             return ['signatures' => [base64_encode($signature)]];
         });
-        $certificate = (new CscCertificateDiscovery($client))->certificates('lab/signer')[0];
-        $builder = Signer::externalSigner()->withPdfContent(PdfFixtureFactory::minimalPdf())
-            ->withCertificate($certificate->certificate->certificatePem)
-            ->withoutDefaultAppearance()->withPadesBaselineB();
+
+        $credential = (new CscCertificateDiscovery($client))->certificates('lab/signer')[0];
+        $builder = Signer::externalSigner()
+            ->withPdfContent(PdfFixtureFactory::minimalPdf())
+            ->withCertificate($credential->certificate->certificatePem)
+            ->withoutDefaultAppearance()
+            ->withPadesBaselineB();
         $prepared = $builder->prepare();
-        $raw = (new CscSignatureProvider($client))->sign($prepared->payload, $certificate);
+        $raw = (new CscSignatureProvider($client))->sign($prepared->payload, $credential);
         $pdf = $builder->complete($prepared->state, $raw->bytes);
-        $validation = Signer::validation()->withPdfContent($pdf)->disableTrustChainValidation()->validate();
-        self::assertTrue($validation->allValid);
+        $result = Signer::validation()->withPdfContent($pdf)->disableTrustChainValidation()->validate();
+
+        self::assertTrue($result->allValid);
         self::assertStringContainsString('/ETSI.CAdES.detached', $pdf);
-        self::assertSame(['info', 'credentials/info', 'info', 'credentials/info', 'credentials/authorize', 'signatures/signHash'], $calls);
+        self::assertSame(
+            ['info', 'credentials/info', 'info', 'credentials/info', 'credentials/authorize', 'signatures/signHash'],
+            $calls,
+        );
     }
 
-    public function test_rejects_a_changed_certificate_before_authorization(): void
+    public function test_rejects_certificate_substitution_before_remote_authorization(): void
     {
         $bundle = Pkcs12Fixture::load();
         $client = self::client(fn ($operation) => match ($operation) {
             'info' => ['specs' => '1.0.4.0'],
             'credentials/info' => self::credentialInfo(self::otherCertificate()),
-            default => throw new \LogicException('authorization must not execute'),
+            default => throw new \LogicException('Authorization must not execute'),
         });
-        $provider = new CscSignatureProvider($client);
-        $certificate = new RemoteCertificate('lab/signer', new SigningCertificateDto($bundle['cert']));
-        $this->expectException(SignerException::class);
-        $this->expectExceptionMessage('certificate changed');
-        $provider->sign(self::payload(), $certificate);
+
+        expect(fn () => (new CscSignatureProvider($client))->sign(
+            self::payload(),
+            new RemoteCertificate('lab/signer', new SigningCertificateDto($bundle['cert'])),
+        ))->toThrow(SignerException::class, 'certificate changed');
     }
 
-    public function test_rejects_signature_for_another_digest(): void
+    public function test_rejects_a_signature_for_a_different_digest(): void
     {
         $bundle = Pkcs12Fixture::load();
         $client = self::client(function ($operation) use ($bundle) {
@@ -118,221 +142,292 @@ final class CscModuleTest extends TestCase
             if ($operation === 'credentials/authorize') {
                 return ['SAD' => 'synthetic-sad'];
             }
+
             $digestInfo = hex2bin('3031300d060960864801650304020105000420').random_bytes(32);
             openssl_private_encrypt($digestInfo, $signature, $bundle['pkey'], OPENSSL_PKCS1_PADDING);
 
             return ['signatures' => [base64_encode($signature)]];
         });
-        $this->expectException(SignerException::class);
-        $this->expectExceptionMessage('inconsistent');
-        (new CscSignatureProvider($client))->sign(self::payload(), new RemoteCertificate('lab/signer', new SigningCertificateDto($bundle['cert'])));
+
+        expect(fn () => (new CscSignatureProvider($client))->sign(
+            self::payload(),
+            new RemoteCertificate('lab/signer', new SigningCertificateDto($bundle['cert'])),
+        ))->toThrow(SignerException::class, 'inconsistent');
     }
 
-    public function test_rejects_unsupported_algorithms_before_network_requests(): void
-    {
-        $client = self::client(fn () => throw new \LogicException('unexpected network call'));
-        $bad = new ExternalSigningPayload(base64_encode(random_bytes(32)), SigningInputType::Digest, HashAlgorithm::Sha512, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::RsaPkcs1);
-        $this->expectException(SignerException::class);
-        (new CscSignatureProvider($client))->sign($bad, new RemoteCertificate('lab/signer', new SigningCertificateDto('unused')));
+    #[DataProvider('unsupportedPayloads')]
+    public function test_rejects_unsupported_crypto_inputs_without_a_remote_call(
+        SigningInputType $inputType,
+        HashAlgorithm $hashAlgorithm,
+        SignatureAlgorithm $signatureAlgorithm,
+        SignatureEncoding $encoding,
+    ): void {
+        $calls = 0;
+        $client = self::client(function () use (&$calls) {
+            $calls++;
+
+            throw new \LogicException('No network access expected');
+        });
+        $payload = new ExternalSigningPayload(base64_encode(random_bytes(32)), $inputType, $hashAlgorithm, $signatureAlgorithm, $encoding);
+        $credential = new RemoteCertificate('lab/signer', new SigningCertificateDto('not-needed'));
+
+        expect(fn () => (new CscSignatureProvider($client))->sign($payload, $credential))
+            ->toThrow(SignerException::class, 'CSC v1');
+        self::assertSame(0, $calls);
     }
 
-    public function test_rejects_invalid_versions_and_malformed_responses(): void
+    public static function unsupportedPayloads(): array
     {
-        foreach (['2.2.0.0', '', null] as $version) {
-            $client = self::client(fn () => ['specs' => $version]);
-            try {
-                $client->assertVersion();
-                self::fail('Accepted unsupported CSC version');
-            } catch (SignerException $e) {
-                self::assertStringContainsString('version', $e->getMessage());
-            }
-        }
-        foreach ([new HttpResponse(401, 'private-token'), new HttpResponse(200, '{'), new HttpResponse(200, '[]')] as $response) {
-            $http = self::transport(fn () => $response);
-            $client = new CscClient($http, 'https://csc.example');
-            try {
-                $client->post('info');
-                self::fail('Accepted invalid CSC HTTP response');
-            } catch (SignerException $e) {
-                self::assertStringNotContainsString('private-token', $e->getMessage());
-            }
-        }
+        return [
+            'input is original data' => [SigningInputType::Data, HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::RsaPkcs1],
+            'hash is SHA-512' => [SigningInputType::Digest, HashAlgorithm::Sha512, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::RsaPkcs1],
+            'signature uses ECDSA' => [SigningInputType::Digest, HashAlgorithm::Sha256, SignatureAlgorithm::Ecdsa, SignatureEncoding::EcdsaDer],
+            'signature output encoding is DER' => [SigningInputType::Digest, HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::EcdsaDer],
+        ];
     }
 
-    public function test_never_retries_after_authentication_failure(): void
+    #[DataProvider('unsupportedVersions')]
+    public function test_rejects_unverified_protocol_versions(?string $version): void
     {
-        $count = 0;
-        $http = self::transport(function () use (&$count) {
-            $count++;
+        $client = self::client(fn () => ['specs' => $version]);
+
+        expect(fn () => $client->assertVersion())->toThrow(SignerException::class, 'version');
+    }
+
+    public static function unsupportedVersions(): array
+    {
+        return [
+            'CSC 2.2 must not be mistaken for v1' => ['2.2.0.0'],
+            'empty version' => [''],
+            'version omitted' => [null],
+        ];
+    }
+
+    #[DataProvider('invalidHttpResponses')]
+    public function test_rejects_http_errors_and_malformed_json_without_exposing_response_body(int $status, string $body, string $message): void
+    {
+        $client = new CscClient(self::transport(fn () => new HttpResponse($status, $body)), 'https://csc.example');
+
+        expect(fn () => $client->post('info'))->toThrow(SignerException::class, $message);
+    }
+
+    public static function invalidHttpResponses(): array
+    {
+        return [
+            '401 unauthorized' => [401, 'private-token', 'HTTP 401'],
+            '403 forbidden' => [403, 'token-secret', 'HTTP 403'],
+            'broken JSON' => [200, '{', 'invalid JSON'],
+            'top-level list' => [200, '[]', 'invalid response'],
+        ];
+    }
+
+    public function test_never_retries_an_authentication_failure(): void
+    {
+        $calls = 0;
+        $client = new CscClient(self::transport(function () use (&$calls) {
+            $calls++;
 
             return new HttpResponse(403, 'token-secret');
-        });
-        try {
-            (new CscClient($http, 'https://csc.example'))->post('signatures/signHash');
-            self::fail('Expected rejected request');
-        } catch (SignerException $e) {
-            self::assertSame(1, $count);
-            self::assertStringNotContainsString('token-secret', $e->getMessage());
-        }
+        }), 'https://csc.example');
+
+        expect(fn () => $client->post('signatures/signHash'))
+            ->toThrow(SignerException::class, 'HTTP 403');
+        self::assertSame(1, $calls);
     }
 
-    public function test_rejects_malformed_sad_and_signature_lists(): void
+    #[DataProvider('invalidSigningResponses')]
+    public function test_rejects_bad_sad_and_signhash_responses_without_submitting_an_extra_signature(string $failure, int $expectedSignCalls): void
     {
         $bundle = Pkcs12Fixture::load();
-        foreach (['missing sad', 'empty sad', 'missing signatures', 'extra signatures', 'invalid base64'] as $failure) {
-            $signCalls = 0;
-            $client = self::client(function ($operation) use ($bundle, $failure, &$signCalls) {
-                if ($operation === 'info') {
-                    return ['specs' => '1.0.4.0'];
-                }
-                if ($operation === 'credentials/info') {
-                    return self::credentialInfo($bundle['cert']);
-                }
-                if ($operation === 'credentials/authorize') {
-                    return match ($failure) {
-                        'missing sad' => ['authorization' => 'unexpected'],
-                        'empty sad' => ['SAD' => ''],
-                        default => ['SAD' => 'synthetic-sad'],
-                    };
-                }
-                $signCalls++;
-
+        $signCalls = 0;
+        $client = self::client(function ($operation) use ($bundle, $failure, &$signCalls) {
+            if ($operation === 'info') {
+                return ['specs' => '1.0.4.0'];
+            }
+            if ($operation === 'credentials/info') {
+                return self::credentialInfo($bundle['cert']);
+            }
+            if ($operation === 'credentials/authorize') {
                 return match ($failure) {
-                    'missing signatures' => ['signature' => 'wrong shape'],
-                    'extra signatures' => ['signatures' => ['one', 'two']],
-                    'invalid base64' => ['signatures' => ['***']],
-                    default => throw new \LogicException('unexpected signHash'),
+                    'missing SAD' => ['authorization' => 'unexpected'],
+                    'empty SAD' => ['SAD' => ''],
+                    default => ['SAD' => 'synthetic-sad'],
                 };
-            });
-            try {
-                (new CscSignatureProvider($client))->sign(self::payload(), new RemoteCertificate('lab/signer', new SigningCertificateDto($bundle['cert'])));
-                self::fail('Accepted malformed CSC response: '.$failure);
-            } catch (SignerException $e) {
-                self::assertStringContainsString('CSC', $e->getMessage());
-                self::assertSame(in_array($failure, ['missing sad', 'empty sad'], true) ? 0 : 1, $signCalls);
             }
-        }
+
+            $signCalls++;
+
+            return match ($failure) {
+                'missing signatures' => ['signature' => 'wrong shape'],
+                'too many signatures' => ['signatures' => ['one', 'two']],
+                'malformed signature base64' => ['signatures' => ['***']],
+                default => throw new \LogicException('Unexpected signHash operation'),
+            };
+        });
+        $credential = new RemoteCertificate('lab/signer', new SigningCertificateDto($bundle['cert']));
+
+        expect(fn () => (new CscSignatureProvider($client))->sign(self::payload(), $credential))
+            ->toThrow(SignerException::class);
+        self::assertSame($expectedSignCalls, $signCalls);
     }
 
-    public function test_rejects_discovery_without_usable_credential_or_certificate(): void
+    public static function invalidSigningResponses(): array
     {
-        foreach (['disabled', 'unsupported algorithm', 'missing certificate', 'invalid certificate'] as $failure) {
-            $bundle = Pkcs12Fixture::load();
-            $info = self::credentialInfo($bundle['cert']);
-            if ($failure === 'disabled') {
-                $info['key']['status'] = 'disabled';
-            } elseif ($failure === 'unsupported algorithm') {
-                $info['key']['algo'] = ['1.2.840.10045.4.3.2'];
-            } elseif ($failure === 'missing certificate') {
-                unset($info['cert']);
-            } else {
-                $info['cert']['certificates'] = [base64_encode('not X509')];
-            }
-            $client = self::client(fn ($operation) => $operation === 'info' ? ['specs' => '1.0.4.0'] : $info);
-            try {
-                (new CscCertificateDiscovery($client))->certificates('lab/signer');
-                self::fail('Accepted malformed CSC credential: '.$failure);
-            } catch (SignerException $e) {
-                self::assertStringContainsString('CSC', $e->getMessage());
-            }
-        }
+        return [
+            'missing SAD' => ['missing SAD', 0],
+            'empty SAD' => ['empty SAD', 0],
+            'missing signatures list' => ['missing signatures', 1],
+            'more than one signature' => ['too many signatures', 1],
+            'malformed raw signature' => ['malformed signature base64', 1],
+        ];
     }
 
-    public function test_rejects_invalid_endpoint_configuration_and_unrecognized_operations(): void
-    {
-        $http = self::transport(fn () => throw new \LogicException('No network access expected'));
-        foreach (['http://signing.example', 'https://user:password@signing.example', 'not a URL'] as $baseUrl) {
-            try {
-                new CscClient($http, $baseUrl);
-                self::fail('Accepted unsafe CSC endpoint: '.$baseUrl);
-            } catch (\InvalidArgumentException $e) {
-                self::assertStringContainsString('HTTPS', $e->getMessage());
-            }
-        }
-        try {
-            new CscClient($http, 'https://csc.example', timeoutSeconds: 0);
-            self::fail('Accepted non-positive HTTP timeout');
-        } catch (\InvalidArgumentException $e) {
-            self::assertStringContainsString('timeout', $e->getMessage());
-        }
-        try {
-            (new CscClient($http, 'https://csc.example'))->post('signatures/signPolling');
-            self::fail('Accepted an unsupported CSC operation');
-        } catch (\InvalidArgumentException $e) {
-            self::assertStringContainsString('Unsupported', $e->getMessage());
-        }
-    }
-
-    public function test_rejects_invalid_credential_selection_and_discovery_lists(): void
-    {
-        $client = self::client(fn ($operation) => $operation === 'info' ? ['specs' => '1.0.4.0'] : ['credentialIDs' => ['lab/signer']]);
-        try {
-            (new CscCertificateDiscovery($client))->certificates(' ');
-            self::fail('Accepted an empty credential identifier');
-        } catch (SignerException $e) {
-            self::assertStringContainsString('ID', $e->getMessage());
-        }
-        foreach ([
-            ['credentialIDs' => ['bad' => 'not a list']],
-            ['credentialIDs' => [null]],
-            ['credentialIDs' => ['']],
-        ] as $invalid) {
-            $client = self::client(fn ($operation) => $operation === 'info' ? ['specs' => '1.0.4.0'] : $invalid);
-            try {
-                (new CscCertificateDiscovery($client))->certificates();
-                self::fail('Accepted invalid credential enumeration');
-            } catch (SignerException $e) {
-                self::assertStringContainsString('CSC', $e->getMessage());
-            }
-        }
-    }
-
-    public function test_rejects_non_rsa_and_invalid_der_credentials(): void
-    {
-        $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
-        $csr = openssl_csr_new(['commonName' => 'Unsupported EC lab signer'], $key);
-        $x509 = openssl_csr_sign($csr, null, $key, 1);
-        openssl_x509_export($x509, $ecPem);
-        $ecInfo = self::credentialInfo($ecPem);
-        foreach ([
-            $ecInfo,
-            ['key' => ['status' => 'enabled', 'algo' => [CscCertificateDiscovery::SHA256_RSA_OID]],
-                'cert' => ['certificates' => ['!not-base64!']]],
-        ] as $info) {
-            $client = self::client(fn ($operation) => $operation === 'info' ? ['specs' => '1.0.4.0'] : $info);
-            try {
-                (new CscCertificateDiscovery($client))->certificates('lab/signer');
-                self::fail('Accepted unusable public key/certificate');
-            } catch (SignerException $e) {
-                self::assertStringContainsString('CSC', $e->getMessage());
-            }
-        }
-    }
-
-    public function test_rejects_invalid_digest_size_or_credential_before_authorization(): void
+    #[DataProvider('unusableCredentialCases')]
+    public function test_rejects_unusable_credential_information(string $case): void
     {
         $bundle = Pkcs12Fixture::load();
-        $count = 0;
-        $client = self::client(function () use (&$count) {
-            $count++;
-
-            return ['specs' => '1.0.4.0'];
-        });
-        foreach ([
-            [new ExternalSigningPayload(base64_encode('short'), SigningInputType::Digest, HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::RsaPkcs1), 'lab/signer'],
-            [self::payload(), ''],
-        ] as [$payload, $id]) {
-            try {
-                (new CscSignatureProvider($client))->sign($payload, new RemoteCertificate($id, new SigningCertificateDto($bundle['cert'])));
-                self::fail('Accepted invalid signing request');
-            } catch (SignerException $e) {
-                self::assertStringContainsString('CSC signing requires', $e->getMessage());
-            }
+        $info = self::credentialInfo($bundle['cert']);
+        switch ($case) {
+            case 'disabled':
+                $info['key']['status'] = 'disabled';
+                break;
+            case 'unsupported algorithm':
+                $info['key']['algo'] = ['1.2.840.10045.4.3.2'];
+                break;
+            case 'generic RSA OID only':
+                $info['key']['algo'] = ['1.2.840.113549.1.1.1'];
+                break;
+            case 'missing certificate':
+                unset($info['cert']);
+                break;
+            case 'invalid X.509':
+                $info['cert']['certificates'] = [base64_encode('not X509')];
+                break;
         }
-        self::assertSame(0, $count);
+        $client = self::client(fn ($operation) => $operation === 'info' ? ['specs' => '1.0.4.0'] : $info);
+
+        expect(fn () => (new CscCertificateDiscovery($client))->certificates('lab/signer'))
+            ->toThrow(SignerException::class);
     }
 
-    public function test_refuses_changed_capabilities_and_invalid_local_certificate(): void
+    public static function unusableCredentialCases(): array
+    {
+        return [
+            'disabled key' => ['disabled'],
+            'unsupported ECDSA algorithm' => ['unsupported algorithm'],
+            'generic RSA OID does not claim SHA-256' => ['generic RSA OID only'],
+            'missing certificate' => ['missing certificate'],
+            'invalid X.509 DER' => ['invalid X.509'],
+        ];
+    }
+
+    #[DataProvider('unsafeEndpoints')]
+    public function test_refuses_unsafe_csc_endpoint_configuration(string $url): void
+    {
+        $http = self::transport(fn () => throw new \LogicException('Unexpected network access'));
+
+        expect(fn () => new CscClient($http, $url))
+            ->toThrow(\InvalidArgumentException::class, 'HTTPS');
+    }
+
+    public static function unsafeEndpoints(): array
+    {
+        return [
+            'insecure remote HTTP' => ['http://signing.example'],
+            'embedded credentials in URL' => ['https://user:password@signing.example'],
+            'not a URL' => ['not a URL'],
+        ];
+    }
+
+    public function test_rejects_invalid_timeout_and_unsupported_operations(): void
+    {
+        $http = self::transport(fn () => throw new \LogicException('Unexpected network access'));
+
+        expect(fn () => new CscClient($http, 'https://csc.example', timeoutSeconds: 0))
+            ->toThrow(\InvalidArgumentException::class, 'timeout');
+        expect(fn () => (new CscClient($http, 'https://csc.example'))->post('signatures/signPolling'))
+            ->toThrow(\InvalidArgumentException::class, 'Unsupported');
+    }
+
+    #[DataProvider('invalidCredentialLists')]
+    public function test_rejects_malformed_credential_enumeration(array $response): void
+    {
+        $client = self::client(fn ($operation) => $operation === 'info' ? ['specs' => '1.0.4.0'] : $response);
+
+        expect(fn () => (new CscCertificateDiscovery($client))->certificates())
+            ->toThrow(SignerException::class);
+    }
+
+    public static function invalidCredentialLists(): array
+    {
+        return [
+            'not a list' => [['credentialIDs' => ['bad' => 'not a list']]],
+            'null identifier' => [['credentialIDs' => [null]]],
+            'blank identifier' => [['credentialIDs' => ['']]],
+        ];
+    }
+
+    public function test_rejects_blank_explicit_credential_identifier(): void
+    {
+        $client = self::client(fn () => ['specs' => '1.0.4.0']);
+
+        expect(fn () => (new CscCertificateDiscovery($client))->certificates(' '))
+            ->toThrow(SignerException::class, 'ID');
+    }
+
+    #[DataProvider('invalidCertificateTypes')]
+    public function test_rejects_ec_and_invalid_der_certificates(string $case): void
+    {
+        $info = self::credentialInfo(Pkcs12Fixture::load()['cert']);
+        if ($case === 'ec public key') {
+            $key = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+            $csr = openssl_csr_new(['commonName' => 'Unsupported EC lab signer'], $key);
+            $x509 = openssl_csr_sign($csr, null, $key, 1);
+            openssl_x509_export($x509, $pem);
+            $info = self::credentialInfo($pem);
+        } else {
+            $info['cert']['certificates'] = ['!not-base64!'];
+        }
+        $client = self::client(fn ($operation) => $operation === 'info' ? ['specs' => '1.0.4.0'] : $info);
+
+        expect(fn () => (new CscCertificateDiscovery($client))->certificates('lab/signer'))
+            ->toThrow(SignerException::class);
+    }
+
+    public static function invalidCertificateTypes(): array
+    {
+        return [
+            'EC key for an RSA-only signing flow' => ['ec public key'],
+            'malformed DER base64' => ['bad DER'],
+        ];
+    }
+
+    #[DataProvider('invalidSigningRequests')]
+    public function test_rejects_incorrect_digest_or_credential_before_any_remote_call(string $digest, string $identifier): void
+    {
+        $calls = 0;
+        $client = self::client(function () use (&$calls) {
+            $calls++;
+
+            throw new \LogicException('Unexpected remote authorization');
+        });
+        $payload = new ExternalSigningPayload(base64_encode($digest), SigningInputType::Digest, HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::RsaPkcs1);
+        $credential = new RemoteCertificate($identifier, new SigningCertificateDto('not-needed'));
+
+        expect(fn () => (new CscSignatureProvider($client))->sign($payload, $credential))
+            ->toThrow(SignerException::class, 'CSC signing requires');
+        self::assertSame(0, $calls);
+    }
+
+    public static function invalidSigningRequests(): array
+    {
+        return [
+            'incorrect digest length' => ['short', 'lab/signer'],
+            'missing credential' => [str_repeat('a', 32), ''],
+        ];
+    }
+
+    public function test_refuses_changed_signing_capabilities_before_authorization(): void
     {
         $bundle = Pkcs12Fixture::load();
         $authorizationCalls = 0;
@@ -350,26 +445,35 @@ final class CscModuleTest extends TestCase
 
             return ['SAD' => 'should-not-be-issued'];
         });
-        try {
-            (new CscSignatureProvider($client))->sign(self::payload(), new RemoteCertificate('lab/signer', new SigningCertificateDto($bundle['cert'])));
-            self::fail('Authorized after the remote signing algorithm changed');
-        } catch (SignerException $e) {
-            self::assertStringContainsString('algorithm', $e->getMessage());
-        }
-        self::assertSame(0, $authorizationCalls);
 
-        $invalidClient = self::client(fn ($operation) => $operation === 'info' ? ['specs' => '1.0.4.0'] : self::credentialInfo($bundle['cert']));
-        try {
-            (new CscSignatureProvider($invalidClient))->sign(self::payload(), new RemoteCertificate('lab/signer', new SigningCertificateDto('not-a-certificate')));
-            self::fail('Accepted an invalid local signer certificate');
-        } catch (SignerException $e) {
-            self::assertStringContainsString('certificate changed', $e->getMessage());
-        }
+        expect(fn () => (new CscSignatureProvider($client))->sign(
+            self::payload(),
+            new RemoteCertificate('lab/signer', new SigningCertificateDto($bundle['cert'])),
+        ))->toThrow(SignerException::class, 'cannot sign');
+        self::assertSame(0, $authorizationCalls);
+    }
+
+    public function test_refuses_invalid_local_signer_certificate(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $client = self::client(fn ($operation) => $operation === 'info'
+            ? ['specs' => '1.0.4.0'] : self::credentialInfo($bundle['cert']));
+
+        expect(fn () => (new CscSignatureProvider($client))->sign(
+            self::payload(),
+            new RemoteCertificate('lab/signer', new SigningCertificateDto('not-a-certificate')),
+        ))->toThrow(SignerException::class, 'certificate changed');
     }
 
     private static function payload(): ExternalSigningPayload
     {
-        return new ExternalSigningPayload(base64_encode(random_bytes(32)), SigningInputType::Digest, HashAlgorithm::Sha256, SignatureAlgorithm::RsaPkcs1V15, SignatureEncoding::RsaPkcs1);
+        return new ExternalSigningPayload(
+            base64_encode(random_bytes(32)),
+            SigningInputType::Digest,
+            HashAlgorithm::Sha256,
+            SignatureAlgorithm::RsaPkcs1V15,
+            SignatureEncoding::RsaPkcs1,
+        );
     }
 
     /** @return array<string, mixed> */

@@ -6,6 +6,7 @@ namespace SignerPHP\PdfSigner\Infrastructure\Remote\Csc;
 
 use SignerPHP\PdfSigner\Domain\Exception\SignerException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
 
 final readonly class CscClient
 {
@@ -26,7 +27,8 @@ final readonly class CscClient
         }
     }
 
-    /** @param array<string, mixed> $payload
+    /**
+     * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
     public function post(string $operation, array $payload = []): array
@@ -34,18 +36,33 @@ final readonly class CscClient
         if (! in_array($operation, ['info', 'credentials/list', 'credentials/info', 'credentials/authorize', 'signatures/signHash'], true)) {
             throw new \InvalidArgumentException('Unsupported CSC operation.');
         }
+
+        // An ambiguous timeout after signHash must not trigger an automatic retry.
+        $response = $this->httpClient->request(
+            'POST',
+            rtrim($this->baseUrl, '/').'/csc/v1/'.$operation,
+            $this->headers(),
+            json_encode($payload, JSON_THROW_ON_ERROR),
+            $this->timeoutSeconds,
+        );
+
+        return $this->decodeResponse($response, $operation);
+    }
+
+    /** @return list<string> */
+    private function headers(): array
+    {
         $headers = ['Accept: application/json', 'Content-Type: application/json'];
         if ($this->accessToken !== null && $this->accessToken !== '') {
             $headers[] = 'Authorization: Bearer '.$this->accessToken;
         }
-        // Do not retry: timeouts after signHash have an uncertain outcome.
-        $response = $this->httpClient->request(
-            'POST',
-            rtrim($this->baseUrl, '/').'/csc/v1/'.$operation,
-            $headers,
-            json_encode($payload, JSON_THROW_ON_ERROR),
-            $this->timeoutSeconds,
-        );
+
+        return $headers;
+    }
+
+    /** @return array<string, mixed> */
+    private function decodeResponse(HttpResponse $response, string $operation): array
+    {
         if (! $response->isSuccessful()) {
             throw new SignerException(sprintf('CSC %s failed with HTTP %d.', $operation, $response->statusCode));
         }
