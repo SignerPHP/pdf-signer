@@ -7,10 +7,11 @@ namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValidationOptionsDto;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCertificateCollectorInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureTrustVerifierInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimeAwareSignatureTrustVerifierInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignatureTrustVerification;
 
-final readonly class OpenSslSignatureTrustVerifier implements SignatureTrustVerifierInterface
+final readonly class OpenSslSignatureTrustVerifier implements TimeAwareSignatureTrustVerifierInterface
 {
     public function __construct(
         private SignatureCertificateCollectorInterface $certificateCollector = new OpenSslCmsCertificateCollector,
@@ -19,6 +20,19 @@ final readonly class OpenSslSignatureTrustVerifier implements SignatureTrustVeri
     ) {}
 
     public function verify(string $signatureHex, SignatureValidationOptionsDto $options): SignatureTrustVerification
+    {
+        return $this->verifyChain($signatureHex, $options, null);
+    }
+
+    /**
+     * Validates the chain at $validationTime (openssl verify -attime) instead of now.
+     */
+    public function verifyAt(string $signatureHex, SignatureValidationOptionsDto $options, \DateTimeImmutable $validationTime): SignatureTrustVerification
+    {
+        return $this->verifyChain($signatureHex, $options, $validationTime);
+    }
+
+    private function verifyChain(string $signatureHex, SignatureValidationOptionsDto $options, ?\DateTimeImmutable $validationTime): SignatureTrustVerification
     {
         if (! $options->checkTrustChain) {
             return new SignatureTrustVerification(true);
@@ -34,13 +48,16 @@ final readonly class OpenSslSignatureTrustVerifier implements SignatureTrustVeri
             return new SignatureTrustVerification(false, 'Could not extract certificates from signature CMS payload.');
         }
 
-        $leafPem = $this->derToPem($certificatesDer[0]);
+        $signerIndex = $this->signerCertificateIndex($signatureHex, $certificatesDer);
+        $leafPem = $this->derToPem($certificatesDer[$signerIndex]);
         if ($leafPem === null) {
             return new SignatureTrustVerification(false, 'Could not decode signer certificate from CMS payload.');
         }
 
         $chainPem = '';
-        foreach (array_slice($certificatesDer, 1) as $certDer) {
+        $others = $certificatesDer;
+        unset($others[$signerIndex]);
+        foreach ($others as $certDer) {
             $pem = $this->derToPem($certDer);
             if ($pem !== null) {
                 $chainPem .= $pem;
@@ -65,9 +82,10 @@ final readonly class OpenSslSignatureTrustVerifier implements SignatureTrustVeri
 
         try {
             $command = sprintf(
-                'openssl verify -CAfile %s%s %s',
+                'openssl verify -CAfile %s%s%s %s',
                 escapeshellarg($trustStore),
                 $chainFile !== null ? ' -untrusted '.escapeshellarg($chainFile) : '',
+                $validationTime !== null ? ' -attime '.$validationTime->getTimestamp() : '',
                 escapeshellarg($leafFile),
             );
 
@@ -121,6 +139,80 @@ final readonly class OpenSslSignatureTrustVerifier implements SignatureTrustVeri
         }
 
         return null;
+    }
+
+    /**
+     * Index of the certificate that matches the first SignerInfo's sid (issuerAndSerialNumber or
+     * subjectKeyIdentifier). The certificates SET is unordered - a TSA token commonly lists its CA
+     * first - so position alone does not identify the signer. Falls back to the first certificate.
+     *
+     * @param  array<int, string>  $certificatesDer
+     */
+    private function signerCertificateIndex(string $signatureHex, array $certificatesDer): int
+    {
+        try {
+            $cms = (string) hex2bin(strlen($signatureHex) % 2 === 0 ? $signatureHex : $signatureHex.'0');
+            [, $contentInfo] = Der::readTlvStrict($cms);
+            [, , $offset] = Der::readTlvStrict($contentInfo);
+            [, $explicit] = Der::readTlvStrict($contentInfo, $offset);
+            [, $signedData] = Der::readTlvStrict($explicit);
+
+            // version, digestAlgorithms, encapContentInfo, [0] certificates?, [1] crls?, signerInfos
+            $offset = 0;
+            for ($field = 0; $field < 3; $field++) {
+                [, , $offset] = Der::readTlvStrict($signedData, $offset);
+            }
+            do {
+                [$tag, $value, $next] = Der::readTlvStrict($signedData, $offset);
+                $offset = $next;
+            } while ($tag === 0xA0 || $tag === 0xA1);
+
+            [, $signerInfo] = Der::readTlvStrict($value);
+            [, , $offset] = Der::readTlvStrict($signerInfo);
+            [$sidTag, $sid, $sidEnd] = Der::readTlvStrict($signerInfo, $offset);
+            $sidDer = substr($signerInfo, $offset, $sidEnd - $offset);
+        } catch (\Throwable) {
+            return 0;
+        }
+
+        foreach (array_values($certificatesDer) as $index => $certificateDer) {
+            if ($sidTag === 0x30 && $this->issuerAndSerial($certificateDer) === $sidDer) {
+                return array_keys($certificatesDer)[$index];
+            }
+            if ($sidTag === 0x80 && $this->subjectKeyIdentifier($certificateDer) === $sid) {
+                return array_keys($certificatesDer)[$index];
+            }
+        }
+
+        return array_key_first($certificatesDer) ?? 0;
+    }
+
+    /**
+     * DER of IssuerAndSerialNumber { issuer Name, serialNumber } built from the certificate's TBS.
+     */
+    private function issuerAndSerial(string $certificateDer): ?string
+    {
+        try {
+            [, $certificate] = Der::readTlvStrict($certificateDer);
+            [, $tbs] = Der::readTlvStrict($certificate);
+            [$tag, , $offset] = Der::readTlvStrict($tbs);
+            $serialStart = $tag === 0xA0 ? $offset : 0;
+            [, , $serialEnd] = Der::readTlvStrict($tbs, $serialStart);
+            [, , $algorithmEnd] = Der::readTlvStrict($tbs, $serialEnd);
+            [, , $issuerEnd] = Der::readTlvStrict($tbs, $algorithmEnd);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return Der::sequence(substr($tbs, $algorithmEnd, $issuerEnd - $algorithmEnd).substr($tbs, $serialStart, $serialEnd - $serialStart));
+    }
+
+    private function subjectKeyIdentifier(string $certificateDer): ?string
+    {
+        $parsed = @openssl_x509_parse((string) $this->derToPem($certificateDer));
+        $ski = is_array($parsed) ? ($parsed['extensions']['subjectKeyIdentifier'] ?? null) : null;
+
+        return is_string($ski) ? (string) hex2bin(str_replace(':', '', $ski)) : null;
     }
 
     private function derToPem(string $der): ?string

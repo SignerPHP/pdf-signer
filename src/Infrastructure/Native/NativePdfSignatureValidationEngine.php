@@ -13,6 +13,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\BrazilPolicyListVerifierI
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PdfSignatureExtractorInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCryptoVerifierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureTrustVerifierInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimeAwareSignatureTrustVerifierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslBrazilPolicyListVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslSignatureCryptoVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslSignatureTrustVerifier;
@@ -53,9 +54,15 @@ final readonly class NativePdfSignatureValidationEngine implements PdfSignatureV
                     : $signature->byteRangeError;
 
                 $cryptoValid = $signature->byteRangeValid && ($crypto?->valid ?? false);
-                $trust = ($signature->byteRangeValid && $cryptoValid)
-                    ? $this->trustVerifier->verify($signature->signatureHex, $request->options)
-                    : null;
+                $trust = null;
+                if ($signature->byteRangeValid && $cryptoValid) {
+                    // A TSA chain is judged when the timestamp was issued (genTime), not today:
+                    // the TSA certificate may have expired since. CMS signatures keep today's check.
+                    $trust = ($signature->isDocumentTimestamp() && $crypto?->signingTime !== null
+                        && $this->trustVerifier instanceof TimeAwareSignatureTrustVerifierInterface)
+                        ? $this->trustVerifier->verifyAt($signature->signatureHex, $request->options, $crypto->signingTime)
+                        : $this->trustVerifier->verify($signature->signatureHex, $request->options);
+                }
                 $trustValid = $trust?->valid;
                 if ($signature->byteRangeValid && $cryptoValid && $trustValid === false) {
                     $reason = $trust?->message;

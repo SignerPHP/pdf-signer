@@ -15,7 +15,9 @@ use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignatureCryptoVerific
  *  1. the TimeStampToken's CMS signature over its encapsulated content is valid;
  *  2. the encapsulated content type is id-ct-TSTInfo;
  *  3. the TSTInfo message imprint equals the hash of the ByteRange bytes;
- *  4. the signer certificate carries the timeStamping extended key usage (RFC 3161, 2.3).
+ *  4. the signer certificate carries the timeStamping extended key usage (RFC 3161, 2.3);
+ *  5. the TSTInfo carries a well-formed genTime, returned as the signing time so the trust
+ *     verifier can check the TSA chain at that instant.
  * Like the CMS verifier, the certificate chain is left to the trust verifier.
  */
 final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInterface
@@ -43,7 +45,7 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
 
         try {
             // /Contents is zero-padded; the token ends where its outer DER length says.
-            [, , $end] = $this->readTlv($contents);
+            [, , $end] = Der::readTlvStrict($contents);
             $token = substr($contents, 0, $end);
             if ($this->encapsulatedContentType($token) !== Der::objectIdentifier(self::OID_TST_INFO)) {
                 return new SignatureCryptoVerification(false, 'Document timestamp does not encapsulate an RFC 3161 TSTInfo.');
@@ -68,9 +70,15 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
                 return new SignatureCryptoVerification(false, 'Timestamp token signature is invalid: '.$result->outputAsString());
             }
 
-            $imprintError = $this->messageImprintError((string) file_get_contents($tstInfoFile), $signedContent);
+            $tstInfo = (string) file_get_contents($tstInfoFile);
+            $imprintError = $this->messageImprintError($tstInfo, $signedContent);
             if ($imprintError !== null) {
                 return new SignatureCryptoVerification(false, $imprintError);
+            }
+
+            $genTime = $this->genTime($tstInfo);
+            if ($genTime === null) {
+                return new SignatureCryptoVerification(false, 'Timestamp token has a missing or invalid genTime.');
             }
 
             $signer = @openssl_x509_parse((string) file_get_contents($signerFile));
@@ -79,7 +87,7 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
                 return new SignatureCryptoVerification(false, 'Timestamp signer certificate lacks the timeStamping extended key usage.');
             }
 
-            return new SignatureCryptoVerification(true);
+            return new SignatureCryptoVerification(true, signingTime: $genTime);
         } finally {
             @unlink($tokenFile);
             @unlink($tstInfoFile);
@@ -92,14 +100,14 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
      */
     private function encapsulatedContentType(string $token): string
     {
-        [, $contentInfo] = $this->readTlv($token);
-        [, , $afterContentType] = $this->readTlv($contentInfo);
-        [, $explicit] = $this->readTlv($contentInfo, $afterContentType);
-        [, $signedData] = $this->readTlv($explicit);
-        [, , $afterVersion] = $this->readTlv($signedData);
-        [, , $afterDigestAlgorithms] = $this->readTlv($signedData, $afterVersion);
-        [, $encapContentInfo] = $this->readTlv($signedData, $afterDigestAlgorithms);
-        [$tag, $oid] = $this->readTlv($encapContentInfo);
+        [, $contentInfo] = Der::readTlvStrict($token);
+        [, , $afterContentType] = Der::readTlvStrict($contentInfo);
+        [, $explicit] = Der::readTlvStrict($contentInfo, $afterContentType);
+        [, $signedData] = Der::readTlvStrict($explicit);
+        [, , $afterVersion] = Der::readTlvStrict($signedData);
+        [, , $afterDigestAlgorithms] = Der::readTlvStrict($signedData, $afterVersion);
+        [, $encapContentInfo] = Der::readTlvStrict($signedData, $afterDigestAlgorithms);
+        [$tag, $oid] = Der::readTlvStrict($encapContentInfo);
 
         return Der::tlv($tag, $oid);
     }
@@ -110,13 +118,13 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
     private function messageImprintError(string $tstInfo, string $signedContent): ?string
     {
         try {
-            [, $fields] = $this->readTlv($tstInfo);
-            [, , $afterVersion] = $this->readTlv($fields);
-            [, , $afterPolicy] = $this->readTlv($fields, $afterVersion);
-            [, $messageImprint] = $this->readTlv($fields, $afterPolicy);
-            [, $algorithm, $afterAlgorithm] = $this->readTlv($messageImprint);
-            [$oidTag, $oid] = $this->readTlv($algorithm);
-            [, $hashedMessage] = $this->readTlv($messageImprint, $afterAlgorithm);
+            [, $fields] = Der::readTlvStrict($tstInfo);
+            [, , $afterVersion] = Der::readTlvStrict($fields);
+            [, , $afterPolicy] = Der::readTlvStrict($fields, $afterVersion);
+            [, $messageImprint] = Der::readTlvStrict($fields, $afterPolicy);
+            [, $algorithm, $afterAlgorithm] = Der::readTlvStrict($messageImprint);
+            [$oidTag, $oid] = Der::readTlvStrict($algorithm);
+            [, $hashedMessage] = Der::readTlvStrict($messageImprint, $afterAlgorithm);
         } catch (\Throwable) {
             return 'Timestamp token has a malformed TSTInfo.';
         }
@@ -139,28 +147,29 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
     }
 
     /**
-     * Der::readTlv() with bounds checks, so truncated input is rejected instead of read past its end.
-     *
-     * @return array{0:int,1:string,2:int}
+     * TSTInfo { version, policy, messageImprint, serialNumber, genTime GeneralizedTime, ... }.
+     * RFC 3161, 2.4.2: YYYYMMDDhhmmss[.s...]Z, always UTC.
      */
-    private function readTlv(string $der, int $offset = 0): array
+    private function genTime(string $tstInfo): ?\DateTimeImmutable
     {
-        if ($offset + 2 > strlen($der)) {
-            throw new \UnexpectedValueException('Truncated DER.');
+        try {
+            [, $fields] = Der::readTlvStrict($tstInfo);
+            $offset = 0;
+            for ($field = 0; $field < 4; $field++) {
+                [, , $offset] = Der::readTlvStrict($fields, $offset);
+            }
+            [$tag, $value] = Der::readTlvStrict($fields, $offset);
+        } catch (\Throwable) {
+            return null;
         }
 
-        $first = ord($der[$offset + 1]);
-        $header = 2 + (($first & 0x80) === 0 ? 0 : ($first & 0x7F));
-        if ($offset + $header > strlen($der)) {
-            throw new \UnexpectedValueException('Truncated DER length.');
+        if ($tag !== 0x18 || preg_match('/\A(\d{14})(?:\.\d*[1-9])?Z\z/', $value, $match) !== 1) {
+            return null;
         }
 
-        $tlv = Der::readTlv($der, $offset);
-        if ($tlv[2] > strlen($der)) {
-            throw new \UnexpectedValueException('DER value exceeds its container.');
-        }
+        $time = \DateTimeImmutable::createFromFormat('!YmdHis', $match[1], new \DateTimeZone('UTC'));
 
-        return $tlv;
+        return ($time !== false && $time->format('YmdHis') === $match[1]) ? $time : null;
     }
 
     private function createTempFile(string $prefix): string
