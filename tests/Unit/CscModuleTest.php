@@ -342,6 +342,21 @@ final class CscModuleTest extends TestCase
         self::assertSame(0, $calls);
     }
 
+    public function test_error_exception_from_http_transport_is_still_an_uncertain_signing_attempt(): void
+    {
+        $client = new CscClient(self::transport(static function (): HttpResponse {
+            throw new \ErrorException('Bearer confidential-token');
+        }), 'https://csc.example');
+
+        try {
+            $client->post('signatures/signHash');
+            self::fail('Expected unknown outcome after signing request');
+        } catch (RemoteSigningOutcomeUnknownException $exception) {
+            self::assertNull($exception->getPrevious());
+            self::assertStringNotContainsString('confidential-token', $exception->getMessage());
+        }
+    }
+
     public function test_pre_signature_transport_failure_does_not_expose_token_or_claim_uncertainty(): void
     {
         $client = new CscClient(self::transport(static function (): HttpResponse {

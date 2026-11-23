@@ -45,7 +45,10 @@ final readonly class CscClient
 
         try {
             $response = $this->httpClient->request('POST', $url, $headers, $body, $this->timeoutSeconds);
-        } catch (\RuntimeException) {
+        } catch (\LogicException $exception) {
+            // Configuration and programming errors are not transport outcomes.
+            throw $exception;
+        } catch (\Exception) {
             if ($operation === 'signatures/signHash') {
                 throw new CscSignHashOutcomeUnknownException(
                     'CSC signHash outcome is unknown; reconcile before resubmission.',
