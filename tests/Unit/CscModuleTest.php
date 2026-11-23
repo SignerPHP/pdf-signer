@@ -12,6 +12,7 @@ use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureEncoding;
 use SignerPHP\PdfSigner\Application\DTO\SigningCertificateDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningInputType;
+use SignerPHP\PdfSigner\Domain\Exception\RemoteSigningOutcomeUnknownException;
 use SignerPHP\PdfSigner\Domain\Exception\SignerException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
@@ -272,6 +273,89 @@ final class CscModuleTest extends TestCase
         expect(fn () => $client->post('signatures/signHash'))
             ->toThrow(CscSignHashOutcomeUnknownException::class, 'reconcile');
         self::assertSame(1, $calls);
+    }
+
+    public function test_transport_programming_error_is_not_disguised_as_uncertain(): void
+    {
+        $client = new CscClient(self::transport(static function (): HttpResponse {
+            throw new \TypeError('synthetic programming defect');
+        }), 'https://csc.example');
+
+        expect(fn () => $client->post('signatures/signHash'))
+            ->toThrow(\TypeError::class, 'synthetic programming defect');
+    }
+
+    public function test_logic_error_inside_http_adapter_is_not_disguised_as_uncertain(): void
+    {
+        $client = new CscClient(self::transport(static function (): HttpResponse {
+            throw new \LogicException('synthetic implementation defect');
+        }), 'https://csc.example');
+
+        expect(fn () => $client->post('signatures/signHash'))
+            ->toThrow(\LogicException::class, 'synthetic implementation defect');
+    }
+
+    public function test_remote_signing_consumers_can_catch_uncertain_results_without_csc_dependency(): void
+    {
+        $client = new CscClient(self::transport(static fn (): HttpResponse => new HttpResponse(503, 'redacted-body')), 'https://csc.example');
+
+        try {
+            $client->post('signatures/signHash');
+            self::fail('Expected an uncertain remote signing outcome');
+        } catch (RemoteSigningOutcomeUnknownException $exception) {
+            self::assertInstanceOf(CscSignHashOutcomeUnknownException::class, $exception);
+            self::assertNull($exception->getPrevious());
+            self::assertStringNotContainsString('redacted-body', $exception->getMessage());
+        }
+    }
+
+    public function test_a_transport_error_cannot_be_masked_by_successful_http_status(): void
+    {
+        $client = new CscClient(self::transport(static fn (): HttpResponse => new HttpResponse(
+            200,
+            '{"signatures": ["looks-valid"]}',
+            'Bearer confidential-token',
+        )), 'https://csc.example');
+
+        try {
+            $client->post('signatures/signHash');
+            self::fail('Expected unknown outcome despite HTTP 200');
+        } catch (RemoteSigningOutcomeUnknownException $exception) {
+            self::assertNull($exception->getPrevious());
+            self::assertStringNotContainsString('confidential-token', $exception->getMessage());
+        }
+    }
+
+    public function test_preflight_payload_serialization_fails_without_submitting(): void
+    {
+        $calls = 0;
+        $client = new CscClient(self::transport(static function () use (&$calls): HttpResponse {
+            $calls++;
+
+            return new HttpResponse(200, '{}');
+        }), 'https://csc.example');
+        $invalid = [];
+        $invalid['self'] = &$invalid;
+
+        expect(fn () => $client->post('signatures/signHash', $invalid))
+            ->toThrow(\JsonException::class);
+        self::assertSame(0, $calls);
+    }
+
+    public function test_pre_signature_transport_failure_does_not_expose_token_or_claim_uncertainty(): void
+    {
+        $client = new CscClient(self::transport(static function (): HttpResponse {
+            throw new \RuntimeException('Bearer confidential-token');
+        }), 'https://csc.example');
+
+        try {
+            $client->post('credentials/authorize');
+            self::fail('Expected a transport failure');
+        } catch (SignerException $exception) {
+            self::assertNotInstanceOf(RemoteSigningOutcomeUnknownException::class, $exception);
+            self::assertSame('CSC credentials/authorize transport failed.', $exception->getMessage());
+            self::assertNull($exception->getPrevious());
+        }
     }
 
     public function test_pre_submission_discovery_failure_is_not_classified_uncertain(): void
