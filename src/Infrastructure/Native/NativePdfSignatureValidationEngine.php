@@ -16,6 +16,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureTrustVerifierInt
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslBrazilPolicyListVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslSignatureCryptoVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslSignatureTrustVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslTimestampTokenVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureExtractor;
 
 final readonly class NativePdfSignatureValidationEngine implements PdfSignatureValidationEngineInterface
@@ -25,6 +26,7 @@ final readonly class NativePdfSignatureValidationEngine implements PdfSignatureV
         private SignatureCryptoVerifierInterface $cryptoVerifier = new OpenSslSignatureCryptoVerifier,
         private SignatureTrustVerifierInterface $trustVerifier = new OpenSslSignatureTrustVerifier,
         private BrazilPolicyListVerifierInterface $policyVerifier = new OpenSslBrazilPolicyListVerifier,
+        private SignatureCryptoVerifierInterface $timestampVerifier = new OpenSslTimestampTokenVerifier,
     ) {}
 
     public function validate(ValidatePdfRequestDto $request): SignatureValidationResultDto
@@ -41,8 +43,9 @@ final readonly class NativePdfSignatureValidationEngine implements PdfSignatureV
                 : null;
 
             foreach ($extracted as $signature) {
+                $verifier = $signature->isDocumentTimestamp() ? $this->timestampVerifier : $this->cryptoVerifier;
                 $crypto = $signature->byteRangeValid
-                    ? $this->cryptoVerifier->verify($signature->signedContent, $signature->signatureHex)
+                    ? $verifier->verify($signature->signedContent, $signature->signatureHex)
                     : null;
 
                 $reason = $signature->byteRangeValid

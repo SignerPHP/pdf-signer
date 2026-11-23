@@ -47,7 +47,8 @@ final class PdfSignatureExtractor implements PdfSignatureExtractorInterface
                 signatureHex: $signatureHex,
                 signedContent: $signedContent,
                 byteRangeValid: $byteRangeValid,
-                byteRangeError: $byteRangeError
+                byteRangeError: $byteRangeError,
+                subFilter: preg_match('/\/SubFilter\s*\/([^\s\/\[\]<>()]+)/', $dictionary, $subFilterMatch) === 1 ? $subFilterMatch[1] : null,
             );
         }
 

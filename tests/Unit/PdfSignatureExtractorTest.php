@@ -50,6 +50,24 @@ PDF;
         self::assertCount(1, $signatures);
         self::assertSame([0, 12, 20, 8], $signatures[0]->byteRange);
         self::assertSame('A1B2C3D4', $signatures[0]->signatureHex);
+        self::assertSame('ETSI.RFC3161', $signatures[0]->subFilter);
+        self::assertTrue($signatures[0]->isDocumentTimestamp());
+    }
+
+    public function test_extractor_exposes_the_subfilter_of_cms_signatures(): void
+    {
+        $pdf = <<<'PDF'
+%PDF-1.7
+1 0 obj
+<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /ETSI.CAdES.detached /ByteRange [0 12 20 8] /Contents <A1B2C3D4> >>
+endobj
+HelloSignedContent
+PDF;
+
+        $signatures = (new PdfSignatureExtractor)->extract($pdf);
+
+        self::assertSame('ETSI.CAdES.detached', $signatures[0]->subFilter);
+        self::assertFalse($signatures[0]->isDocumentTimestamp());
     }
 
     public function test_extractor_skips_dictionary_when_type_is_not_sig(): void
