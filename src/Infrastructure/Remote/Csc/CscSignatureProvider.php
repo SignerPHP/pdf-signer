@@ -32,7 +32,16 @@ final readonly class CscSignatureProvider implements RemoteSignatureProviderInte
             'signAlgo' => CscCertificateDiscovery::SHA256_RSA_OID,
         ]);
 
-        return $this->validatedSignature($response, $certificate, $digest);
+        try {
+            return $this->validatedSignature($response, $certificate, $digest);
+        } catch (SignerException $exception) {
+            // A 2xx response with an invalid signature is still an attempted
+            // private-key operation and must not be blindly repeated.
+            throw new CscSignHashOutcomeUnknownException(
+                'CSC signHash response could not be verified; reconcile before resubmission.',
+                previous: $exception,
+            );
+        }
     }
 
     private function validatedDigest(ExternalSigningPayload $payload, RemoteCertificate $certificate): string

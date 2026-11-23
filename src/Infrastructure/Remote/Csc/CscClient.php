@@ -38,15 +38,25 @@ final readonly class CscClient
         }
 
         // An ambiguous timeout after signHash must not trigger an automatic retry.
-        $response = $this->httpClient->request(
-            'POST',
-            rtrim($this->baseUrl, '/').'/csc/v1/'.$operation,
-            $this->headers(),
-            json_encode($payload, JSON_THROW_ON_ERROR),
-            $this->timeoutSeconds,
-        );
+        // Prepare the request before crossing the uncertain submission boundary.
+        $url = rtrim($this->baseUrl, '/').'/csc/v1/'.$operation;
+        $headers = $this->headers();
+        $body = json_encode($payload, JSON_THROW_ON_ERROR);
 
-        return $this->decodeResponse($response, $operation);
+        try {
+            $response = $this->httpClient->request('POST', $url, $headers, $body, $this->timeoutSeconds);
+            return $this->decodeResponse($response, $operation);
+        } catch (\Throwable $exception) {
+            if ($operation !== 'signatures/signHash') {
+                throw $exception;
+            }
+            // Even HTTP errors and malformed replies cannot establish whether
+            // a remote private-key operation was already performed.
+            throw new CscSignHashOutcomeUnknownException(
+                'CSC signHash outcome is unknown; reconcile before resubmission.',
+                previous: $exception,
+            );
+        }
     }
 
     /** @return list<string> */
