@@ -35,8 +35,6 @@ final readonly class CscSignatureProvider implements RemoteSignatureProviderInte
         try {
             return $this->validatedSignature($response, $certificate, $digest);
         } catch (SignerException) {
-            // A 2xx response with an invalid signature is still an attempted
-            // private-key operation and must not be blindly repeated.
             throw new CscSignHashOutcomeUnknownException(
                 'CSC signHash response could not be verified; reconcile before resubmission.',
             );
@@ -62,8 +60,6 @@ final readonly class CscSignatureProvider implements RemoteSignatureProviderInte
 
     private function assertCredentialUnchanged(RemoteCertificate $selected): void
     {
-        // Reuse discovery's certificate and capability validation rather than
-        // introducing a second, subtly different CSC credential policy.
         $current = (new CscCertificateDiscovery($this->client))->certificates($selected->identifier)[0];
         $expected = self::certificateFingerprint($selected->certificate->certificatePem);
         $actual = self::certificateFingerprint($current->certificate->certificatePem);
