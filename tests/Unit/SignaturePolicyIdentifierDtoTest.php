@@ -59,6 +59,21 @@ final class SignaturePolicyIdentifierDtoTest extends TestCase
         self::assertSame(HashAlgorithm::Sha256, IcpBrasilPadesPolicy::AdRtV1_3->toIdentifier()->hashAlgorithm);
     }
 
+    public function test_icp_brasil_timestamped_arcs_always_require_a_signature_timestamp(): void
+    {
+        $digest = str_repeat("\1", 32);
+
+        foreach (['2.16.76.1.7.1.12.1.1', '2.16.76.1.7.1.12.1.3', '2.16.76.1.7.1.13.1.4', '2.16.76.1.7.1.14.1.4', '2.16.76.1.7.1.12'] as $oid) {
+            self::assertTrue((new SignaturePolicyIdentifierDto($oid, $digest))->requiresSignatureTimestamp, $oid);
+        }
+
+        foreach (['2.16.76.1.7.1.11.1.3', '2.16.76.1.7.1.120', '1.2.3.4'] as $oid) {
+            self::assertFalse((new SignaturePolicyIdentifierDto($oid, $digest))->requiresSignatureTimestamp, $oid);
+        }
+
+        self::assertTrue((new SignaturePolicyIdentifierDto('1.2.3.4', $digest, requiresSignatureTimestamp: true))->requiresSignatureTimestamp);
+    }
+
     public function test_rejects_an_invalid_oid(): void
     {
         $this->expectException(SignerException::class);

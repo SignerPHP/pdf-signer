@@ -33,6 +33,53 @@ final class ExternalSigningTest extends TestCase
         Signer::externalSigner()->withSignaturePolicy(\SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy::AdRtV1_3);
     }
 
+    public function test_external_signing_rejects_a_custom_identifier_for_an_ad_rt_oid(): void
+    {
+        $this->expectException(\SignerPHP\PdfSigner\Domain\Exception\SignerException::class);
+        $this->expectExceptionMessage('2.16.76.1.7.1.12.1.3 requires a signature timestamp');
+
+        Signer::externalSigner()->withSignaturePolicy(new \SignerPHP\PdfSigner\Application\DTO\SignaturePolicyIdentifierDto(
+            '2.16.76.1.7.1.12.1.3',
+            str_repeat("\1", 32),
+            requiresSignatureTimestamp: false,
+        ));
+    }
+
+    public function test_external_signing_service_refuses_to_prepare_a_policy_that_requires_a_signature_timestamp(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $context = new \SignerPHP\PdfSigner\Application\DTO\SigningContextDto(
+            new \SignerPHP\PdfSigner\Application\DTO\PdfContentDto(PdfFixtureFactory::minimalPdf()),
+            new \SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto(
+                useDefaultAppearance: false,
+                signatureProfile: \SignerPHP\PdfSigner\Application\DTO\SignatureProfile::PadesBaselineB,
+                signaturePolicy: \SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy::AdRtV1_3->toIdentifier(),
+            ),
+            new \SignerPHP\PdfSigner\Application\DTO\SigningCertificateDto($bundle['cert']),
+        );
+
+        try {
+            (new \SignerPHP\PdfSigner\Infrastructure\Native\Service\ExternalPdfSigningService)->prepare($context);
+            self::fail('An AD-RT signature must not be prepared without a signature timestamp.');
+        } catch (\SignerPHP\PdfSigner\Domain\Exception\SignProcessException $exception) {
+            self::assertStringContainsString('2.16.76.1.7.1.12.1.3 requires a signature timestamp', $exception->getMessage());
+        }
+    }
+
+    public function test_external_signing_service_still_prepares_ad_rb(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $prepared = Signer::externalSigner()
+            ->withPdfContent(PdfFixtureFactory::minimalPdf())
+            ->withCertificate($bundle['cert'])
+            ->withoutDefaultAppearance()
+            ->withPadesBaselineB()
+            ->withSignaturePolicy(\SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy::AdRbV1_3)
+            ->prepare();
+
+        self::assertNotSame('', $prepared->state);
+    }
+
     public function test_exposes_the_external_signer_through_the_public_facade(): void
     {
         expect(Signer::externalSigner())->toBeInstanceOf(ExternalSignerBuilder::class);

@@ -15,6 +15,12 @@ final readonly class SignaturePolicyIdentifierDto
     public HashAlgorithm $hashAlgorithm;
 
     /**
+     * True when the policy mandates id-aa-signatureTimeStampToken in the CMS. Always true for the
+     * ICP-Brasil PAdES AD-RT, AD-RC and AD-RA arcs (2.16.76.1.7.1.12/13/14), whatever the caller passed.
+     */
+    public bool $requiresSignatureTimestamp;
+
+    /**
      * @param  string  $oid  dotted policy OID
      * @param  string  $digest  binary hash of the policy document (sigPolicyHash)
      * @param  ?string  $uri  optional SPURI qualifier
@@ -25,13 +31,15 @@ final readonly class SignaturePolicyIdentifierDto
         public string $digest,
         HashAlgorithm|string $hashAlgorithm = HashAlgorithm::Sha256,
         public ?string $uri = null,
-        public bool $requiresSignatureTimestamp = false,
+        bool $requiresSignatureTimestamp = false,
     ) {
         if (preg_match('/^[0-2](\.(0|[1-9]\d*))+$/', $oid) !== 1) {
             throw new SignerException(sprintf('Invalid signature policy OID "%s".', $oid));
         }
 
         $this->hashAlgorithm = HashAlgorithm::fromString($hashAlgorithm);
+        $this->requiresSignatureTimestamp = $requiresSignatureTimestamp
+            || preg_match('/^2\.16\.76\.1\.7\.1\.1[234](\.|$)/', $oid) === 1;
         $expectedLength = strlen(hash($this->hashAlgorithm->value, '', true));
         if (strlen($digest) !== $expectedLength) {
             throw new SignerException(sprintf(
