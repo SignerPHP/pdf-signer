@@ -1,0 +1,57 @@
+<?php
+
+declare(strict_types=1);
+
+namespace SignerPHP\PdfSigner\Application\DTO;
+
+use SignerPHP\PdfSigner\Domain\Exception\SignerException;
+
+/**
+ * Explicit signature policy embedded as the signed attribute
+ * id-aa-ets-sigPolicyId (RFC 5126 / ETSI EN 319 122-1, section 5.2.9).
+ */
+final readonly class SignaturePolicyIdentifierDto
+{
+    public HashAlgorithm $hashAlgorithm;
+
+    /**
+     * @param  string  $oid  dotted policy OID
+     * @param  string  $digest  binary hash of the policy document (sigPolicyHash)
+     * @param  ?string  $uri  optional SPURI qualifier
+     */
+    public function __construct(
+        public string $oid,
+        public string $digest,
+        HashAlgorithm|string $hashAlgorithm = HashAlgorithm::Sha256,
+        public ?string $uri = null,
+    ) {
+        if (preg_match('/^[0-2](\.(0|[1-9]\d*))+$/', $oid) !== 1) {
+            throw new SignerException(sprintf('Invalid signature policy OID "%s".', $oid));
+        }
+
+        $this->hashAlgorithm = HashAlgorithm::fromString($hashAlgorithm);
+        $expectedLength = strlen(hash($this->hashAlgorithm->value, '', true));
+        if (strlen($digest) !== $expectedLength) {
+            throw new SignerException(sprintf(
+                'Signature policy digest must have %d bytes for %s, got %d.',
+                $expectedLength,
+                $this->hashAlgorithm->value,
+                strlen($digest),
+            ));
+        }
+
+        if ($uri !== null && ($uri === '' || preg_match('/^[\x20-\x7E]+$/', $uri) !== 1)) {
+            throw new SignerException('Signature policy URI must be a non-empty ASCII string.');
+        }
+    }
+
+    public static function fromHex(string $oid, string $digestHex, HashAlgorithm|string $hashAlgorithm = HashAlgorithm::Sha256, ?string $uri = null): self
+    {
+        $digest = ctype_xdigit($digestHex) && strlen($digestHex) % 2 === 0 ? hex2bin($digestHex) : false;
+        if ($digest === false) {
+            throw new SignerException('Signature policy digest must be a hexadecimal string.');
+        }
+
+        return new self($oid, $digest, $hashAlgorithm, $uri);
+    }
+}

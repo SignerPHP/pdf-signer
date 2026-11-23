@@ -7,6 +7,7 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
@@ -151,6 +152,66 @@ final class DetachedCmsAssemblerTest extends TestCase
             unlink($contentFile);
             unlink($certFile);
         }
+    }
+
+    public function test_signature_policy_identifier_is_a_signed_attribute(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $policy = IcpBrasilPadesPolicy::AdRbV1_3->toIdentifier();
+        $prepared = (new DetachedCmsAssembler)->prepare('payload', $bundle['cert'], profile: SignatureProfile::PadesBaselineB, signaturePolicy: $policy);
+
+        $expected = Der::sequence(
+            Der::objectIdentifier('1.2.840.113549.1.9.16.2.15')
+            .Der::set(Der::sequence(
+                Der::objectIdentifier('2.16.76.1.7.1.11.1.3')
+                .Der::sequence(
+                    Der::algorithmIdentifier('2.16.840.1.101.3.4.2.1', withNullParameters: false)
+                    .Der::octetString((string) hex2bin('23da544aef71f7a75dc85fa6e17a83875741e4baef41ec178258a5c86ace54dd'))
+                )
+                .Der::sequence(Der::sequence(
+                    Der::objectIdentifier('1.2.840.113549.1.9.16.5.1')
+                    .Der::tlv(0x16, 'http://politicas.icpbrasil.gov.br/PA_PAdES_AD_RB_v1_3.der')
+                ))
+            ))
+        );
+        self::assertStringContainsString($expected, $prepared->signedAttributes);
+    }
+
+    public function test_openssl_decodes_the_signature_policy_identifier(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $provider = new LocalPrivateKeySignatureProvider($bundle['pkey']);
+        $cms = (new DetachedCmsAssembler)->assemble(
+            'payload',
+            $bundle['cert'],
+            $provider,
+            profile: SignatureProfile::PadesBaselineB,
+            signaturePolicy: IcpBrasilPadesPolicy::AdRtV1_3->toIdentifier(),
+        );
+        $filename = tempnam(sys_get_temp_dir(), 'pades-policy-');
+        self::assertNotFalse($filename);
+        try {
+            file_put_contents($filename, $cms);
+            $output = [];
+            $exitCode = -1;
+            exec('openssl cms -inform DER -in '.escapeshellarg($filename).' -cmsout -print 2>&1', $output, $exitCode);
+            self::assertSame(0, $exitCode, implode("\n", $output));
+            $decoded = implode("\n", $output);
+            self::assertMatchesRegularExpression('/object:\\s*(?:id-smime-aa-ets-sigPolicyId|1\\.2\\.840\\.113549\\.1\\.9\\.16\\.2\\.15)\\b/', $decoded);
+            self::assertStringContainsString('2.16.76.1.7.1.12.1.3', $decoded);
+        } finally {
+            unlink($filename);
+        }
+    }
+
+    public function test_signature_policy_is_rejected_for_the_basic_profile(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('requires a PAdES');
+
+        (new DetachedCmsAssembler)->prepare('payload', $bundle['cert'], signaturePolicy: IcpBrasilPadesPolicy::AdRbV1_3->toIdentifier());
     }
 
     public function test_basic_profile_preserves_cms_signing_time(): void

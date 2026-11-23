@@ -6,10 +6,12 @@ namespace SignerPHP\PdfSigner\Presentation;
 
 use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy;
 use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
 use SignerPHP\PdfSigner\Application\DTO\PreparedExternalSignature;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureMetadataDto;
+use SignerPHP\PdfSigner\Application\DTO\SignaturePolicyIdentifierDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SigningCertificateDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
@@ -35,6 +37,8 @@ final class ExternalSignerBuilder
     private SignatureProfile $signatureProfile = SignatureProfile::PdfBasic;
 
     private ?CertificationLevel $certificationLevel = null;
+
+    private ?SignaturePolicyIdentifierDto $signaturePolicy = null;
 
     private HashAlgorithm $hashAlgorithm = HashAlgorithm::Sha256;
 
@@ -95,6 +99,17 @@ final class ExternalSignerBuilder
         return $this;
     }
 
+    /**
+     * Declares an explicit signature policy (signed attribute id-aa-ets-sigPolicyId).
+     * Requires a PAdES profile.
+     */
+    public function withSignaturePolicy(SignaturePolicyIdentifierDto|IcpBrasilPadesPolicy $policy): self
+    {
+        $this->signaturePolicy = $policy instanceof IcpBrasilPadesPolicy ? $policy->toIdentifier() : $policy;
+
+        return $this;
+    }
+
     public function withCertificationLevel(CertificationLevel|int $level): self
     {
         $resolved = is_int($level) ? CertificationLevel::fromInt($level) : $level;
@@ -124,6 +139,10 @@ final class ExternalSignerBuilder
             throw new SignerException('Signing certificate is required. Use withCertificate().');
         }
 
+        if ($this->signaturePolicy !== null && $this->signatureProfile === SignatureProfile::PdfBasic) {
+            throw new SignerException('A signature policy requires a PAdES profile (for example withPadesBaselineB()).');
+        }
+
         $context = new SigningContextDto(
             $this->content,
             new SigningOptionsDto(
@@ -133,6 +152,7 @@ final class ExternalSignerBuilder
                 $this->useDefaultAppearance,
                 $this->signatureProfile,
                 $this->certificationLevel,
+                $this->signaturePolicy,
             ),
             new SigningCertificateDto($this->certificatePem, $this->certificateChainPem),
         );

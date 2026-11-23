@@ -54,6 +54,7 @@ final readonly class ExternalPdfSigningService
             $algorithm,
             certificateChainPem: $context->certificate->chainPem,
             profile: $context->options->signatureProfile,
+            signaturePolicy: $context->options->signaturePolicy,
         );
 
         return new PreparedExternalSignature(

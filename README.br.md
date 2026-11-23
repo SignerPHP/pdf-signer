@@ -404,6 +404,17 @@ $signedPdf = Signer::signer()
 
 Esse preset aplica `PAdES-LTA` + `DocMDP=2` + timestamp explícito de política.
 
+Ele também declara a política de assinatura ICP-Brasil nos atributos assinados do CMS (`id-aa-ets-sigPolicyId`, com o hash e a URI da política conforme a lista oficial `LPA_PAdES.der`). O padrão é **AD-RB v1.3**; para escolher outra política vigente:
+
+```php
+use SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy;
+
+$policy = BrazilSignaturePolicyOptionsDto::tsa('https://tsa.seu-provedor.com.br')
+ ->withSignaturePolicy(IcpBrasilPadesPolicy::AdRtV1_3);
+```
+
+Qualquer assinatura PAdES (inclusive no fluxo de assinatura externa) pode declarar uma política explícita com `withSignaturePolicy(IcpBrasilPadesPolicy::AdRbV1_3)` ou um `SignaturePolicyIdentifierDto` próprio.
+
 Para trocar facilmente para outro TSA:
 
 ```php

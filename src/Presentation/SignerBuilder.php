@@ -8,11 +8,13 @@ use SignerPHP\PdfSigner\Application\Contract\DefaultTimestampOptionsProviderInte
 use SignerPHP\PdfSigner\Application\DTO\BrazilSignaturePolicyOptionsDto;
 use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
 use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
+use SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy;
 use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
 use SignerPHP\PdfSigner\Application\DTO\ProtectionOptionsDto;
 use SignerPHP\PdfSigner\Application\DTO\ProtectPdfRequestDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureMetadataDto;
+use SignerPHP\PdfSigner\Application\DTO\SignaturePolicyIdentifierDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto;
 use SignerPHP\PdfSigner\Application\DTO\SignPdfRequestDto;
@@ -45,6 +47,8 @@ final class SignerBuilder
     private SignatureProfile $signatureProfile = SignatureProfile::PdfBasic;
 
     private ?CertificationLevel $certificationLevel = null;
+
+    private ?SignaturePolicyIdentifierDto $signaturePolicy = null;
 
     public function __construct(
         private readonly PdfSigningService $service,
@@ -161,6 +165,17 @@ final class SignerBuilder
         return $this;
     }
 
+    /**
+     * Declares an explicit signature policy (signed attribute id-aa-ets-sigPolicyId).
+     * Requires a PAdES profile.
+     */
+    public function withSignaturePolicy(SignaturePolicyIdentifierDto|IcpBrasilPadesPolicy $policy): self
+    {
+        $this->signaturePolicy = $policy instanceof IcpBrasilPadesPolicy ? $policy->toIdentifier() : $policy;
+
+        return $this;
+    }
+
     public function withCertificationLevel(CertificationLevel|int $level): self
     {
         $resolved = is_int($level) ? CertificationLevel::fromInt($level) : $level;
@@ -178,6 +193,7 @@ final class SignerBuilder
         $this->signatureProfile = SignatureProfile::PadesBaselineLTA;
         $this->certificationLevel = CertificationLevel::FormFillAndSignatures;
         $this->timestamp = $policy->toTimestampOptions();
+        $this->signaturePolicy = $policy->signaturePolicy->toIdentifier();
 
         return $this;
     }
@@ -236,6 +252,10 @@ final class SignerBuilder
             );
         }
 
+        if ($this->signaturePolicy !== null && $this->signatureProfile === SignatureProfile::PdfBasic) {
+            throw new SignerException('A signature policy requires a PAdES profile (for example withPadesBaselineB()).');
+        }
+
         $request = new SignPdfRequestDto(
             new PdfContentDto($pdfContent),
             $this->certificate,
@@ -245,7 +265,8 @@ final class SignerBuilder
                 $resolvedTimestamp,
                 $this->useDefaultAppearance,
                 $this->signatureProfile,
-                $this->certificationLevel
+                $this->certificationLevel,
+                $this->signaturePolicy,
             ),
         );
 
