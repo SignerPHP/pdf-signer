@@ -35,6 +35,23 @@ PDF;
         self::assertSame('A1B2C3D4', $signatures[0]->signatureHex);
     }
 
+    public function test_extractor_includes_document_timestamp_dictionaries(): void
+    {
+        $pdf = <<<'PDF'
+%PDF-1.7
+1 0 obj
+<< /Type /DocTimeStamp /Filter /Adobe.PPKLite /SubFilter /ETSI.RFC3161 /ByteRange [0 12 20 8] /Contents <A1B2C3D4> >>
+endobj
+HelloSignedContent
+PDF;
+
+        $signatures = (new PdfSignatureExtractor)->extract($pdf);
+
+        self::assertCount(1, $signatures);
+        self::assertSame([0, 12, 20, 8], $signatures[0]->byteRange);
+        self::assertSame('A1B2C3D4', $signatures[0]->signatureHex);
+    }
+
     public function test_extractor_skips_dictionary_when_type_is_not_sig(): void
     {
         $pdf = <<<'PDF'
