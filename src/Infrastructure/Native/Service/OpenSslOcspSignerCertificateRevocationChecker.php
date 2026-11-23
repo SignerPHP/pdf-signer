@@ -19,6 +19,13 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignerCertificateRevocati
  * nextUpdate, at most one day old). A verified "revoked" from any responder is fatal.
  * Unverifiable, stale or missing answers keep the previous behaviour, so offline and
  * OCSP-less certificates are not blocked.
+ *
+ * Why the signer's own chain is the trust anchor: this is a fail-safe for the signer's
+ * certificate, not a validation of someone else's signature. The threat it defends against
+ * is a tampered OCSP exchange, and a forged response cannot be signed under the root that
+ * issued the signer's certificate. Whoever controls the chain can only make the check
+ * inconclusive (the pre-existing behaviour) or block their own signature. Trust decisions
+ * about the signature itself stay with the validators, which use their own trust store.
  */
 final readonly class OpenSslOcspSignerCertificateRevocationChecker implements SignerCertificateRevocationCheckerInterface
 {
