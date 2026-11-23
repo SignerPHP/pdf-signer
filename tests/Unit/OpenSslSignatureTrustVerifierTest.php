@@ -234,12 +234,41 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
 
     public function test_verify_uses_the_signer_certificate_even_when_the_ca_is_listed_first(): void
     {
+        self::assertSame('Order-Signer', $this->leafSubjectPassedToOpenSsl('', ['ca', 's']));
+    }
+
+    public function test_verify_matches_a_signer_identified_by_subject_key_identifier(): void
+    {
+        self::assertSame('Order-Signer', $this->leafSubjectPassedToOpenSsl('-keyid', ['ca', 's']));
+    }
+
+    public function test_verify_falls_back_to_the_first_certificate_when_none_matches_the_signer(): void
+    {
+        self::assertSame('Order-CA', $this->leafSubjectPassedToOpenSsl('', ['ca']));
+    }
+
+    public function test_verify_skips_undecodable_certificates_while_matching_the_signer(): void
+    {
+        self::assertSame('Order-Signer', $this->leafSubjectPassedToOpenSsl('', ['garbage', 'ca', 's']));
+    }
+
+    /**
+     * Signs with a self-signed leaf, offers the verifier the listed certificates in that order
+     * ('ca', 's' for the signer, 'garbage' for undecodable DER), and returns the CN of the
+     * certificate that the verifier hands to `openssl verify` as the leaf.
+     *
+     * @param  list<string>  $certificates
+     */
+    private function leafSubjectPassedToOpenSsl(string $signFlags, array $certificates): string
+    {
         $dir = sys_get_temp_dir().'/trust-order-'.bin2hex(random_bytes(4));
         mkdir($dir);
         $d = escapeshellarg($dir);
-        exec("cd $d && openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -subj /CN=Order-CA -days 1 2>&1"
-            .' && openssl req -x509 -newkey rsa:2048 -nodes -keyout s.key -out s.crt -subj /CN=Order-Signer -days 1 2>&1'
-            .' && printf data > d && openssl cms -sign -binary -nodetach -outform DER -signer s.crt -inkey s.key -certfile ca.crt -in d -out t.der 2>&1', $output, $exitCode);
+        // Explicit SKI: LibreSSL does not add one to self-signed certificates, and -keyid needs it.
+        file_put_contents("$dir/x509.cnf", "[req]\ndistinguished_name = dn\n[dn]\n[v3]\nsubjectKeyIdentifier = hash\n");
+        exec("cd $d && openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -subj /CN=Order-CA -days 1 -config x509.cnf -extensions v3 2>&1"
+            .' && openssl req -x509 -newkey rsa:2048 -nodes -keyout s.key -out s.crt -subj /CN=Order-Signer -days 1 -config x509.cnf -extensions v3 2>&1'
+            ." && printf data > d && openssl cms -sign -binary -nodetach -outform DER $signFlags -signer s.crt -inkey s.key -certfile ca.crt -in d -out t.der 2>&1", $output, $exitCode);
         self::assertSame(0, $exitCode, implode("\n", $output));
 
         $runner = new class implements ProcessRunnerInterface
@@ -256,13 +285,30 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
             }
         };
 
+        $certificatesDer = [];
+        foreach ($certificates as $name) {
+            $certificatesDer[] = $name === 'garbage'
+                ? "\x30\x03\x02\x01\x00"
+                : (string) base64_decode((string) preg_replace('/-----[A-Z ]+-----|\s/', '', (string) file_get_contents("$dir/$name.crt")));
+        }
+        $collector = new class($certificatesDer) implements SignatureCertificateCollectorInterface
+        {
+            /** @param list<string> $certificatesDer */
+            public function __construct(private readonly array $certificatesDer) {}
+
+            public function collectDerCertificates(string $signatureHex): array
+            {
+                return $this->certificatesDer;
+            }
+        };
+
         try {
-            (new OpenSslSignatureTrustVerifier(processRunner: $runner))->verify(
+            (new OpenSslSignatureTrustVerifier($collector, processRunner: $runner))->verify(
                 bin2hex((string) file_get_contents("$dir/t.der")),
                 new SignatureValidationOptionsDto(checkTrustChain: true, trustStorePath: "$dir/ca.crt"),
             );
 
-            self::assertSame('Order-Signer', $runner->leafSubject);
+            return $runner->leafSubject;
         } finally {
             exec('rm -rf '.$d);
         }
