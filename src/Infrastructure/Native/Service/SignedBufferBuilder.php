@@ -12,6 +12,7 @@ use SignerPHP\PdfCore\Xref\Xref;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ChainAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\LongTermValidationApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
@@ -57,7 +58,10 @@ final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
         $signableDocument = new Buffer($docToXref->raw().$signature->toPdfEntry().$docFromXref->raw());
         $certificatePem = $context->certificate->certificatePem;
         $profile = $context->options->signatureProfile;
-        if ($this->pkcs7Signer instanceof ProfileAwarePkcs7SignerInterface) {
+        $certificateChainPem = $context->certificate->chainPem;
+        if ($this->pkcs7Signer instanceof ChainAwarePkcs7SignerInterface && $certificateChainPem !== []) {
+            $signatureContents = $this->pkcs7Signer->signWithChain($signableDocument, $signatureProvider, $certificatePem, $profile, $certificateChainPem);
+        } elseif ($this->pkcs7Signer instanceof ProfileAwarePkcs7SignerInterface) {
             $signatureContents = $this->pkcs7Signer->signWithProfile($signableDocument, $signatureProvider, $certificatePem, $profile);
         } elseif ($profile === SignatureProfile::PdfBasic) {
             $signatureContents = $this->pkcs7Signer->sign($signableDocument, $signatureProvider, $certificatePem);

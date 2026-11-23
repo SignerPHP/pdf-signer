@@ -16,6 +16,7 @@ use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ChainAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\LongTermValidationApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
@@ -269,7 +270,60 @@ final class SignedBufferBuilderTest extends TestCase
         };
     }
 
-    private function makeContext(SignatureProfile $profile, ?TimestampOptionsDto $timestamp): SigningContextDto
+    public function test_build_passes_the_certificate_chain_to_a_chain_aware_signer(): void
+    {
+        $captured = new class
+        {
+            /** @var list<string>|null */
+            public ?array $chain = null;
+
+            public bool $usedProfileOnly = false;
+        };
+
+        $builder = new SignedBufferBuilder(
+            new class implements XrefContentResolverInterface
+            {
+                public function resolve(PdfDocument $pdfDocument, array $objectOffsets, int $xrefOffset): Buffer
+                {
+                    return new Buffer('XREF');
+                }
+            },
+            new class($captured) implements ChainAwarePkcs7SignerInterface
+            {
+                public function __construct(private object $captured) {}
+
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
+                {
+                    return 'ABCD';
+                }
+
+                public function signWithProfile(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile): string
+                {
+                    $this->captured->usedProfileOnly = true;
+
+                    return 'ABCD';
+                }
+
+                public function signWithChain(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile, array $certificateChainPem): string
+                {
+                    $this->captured->chain = $certificateChainPem;
+
+                    return 'ABCD';
+                }
+            },
+        );
+
+        $builder->build($this->makePdfDocumentForSigning(), $this->makeSignatureHandlerWithCertificate(), $this->makeContext(SignatureProfile::PadesBaselineB, null, ['INTERMEDIATE', 'ROOT']), $this->makeProvider());
+        self::assertSame(['INTERMEDIATE', 'ROOT'], $captured->chain);
+        self::assertFalse($captured->usedProfileOnly);
+
+        $captured->chain = null;
+        $builder->build($this->makePdfDocumentForSigning(), $this->makeSignatureHandlerWithCertificate(), $this->makeContext(SignatureProfile::PadesBaselineB, null), $this->makeProvider());
+        self::assertNull($captured->chain, 'without a chain the profile-only path is kept');
+        self::assertTrue($captured->usedProfileOnly);
+    }
+
+    private function makeContext(SignatureProfile $profile, ?TimestampOptionsDto $timestamp, array $chainPem = []): SigningContextDto
     {
         return new SigningContextDto(
             pdf: new PdfContentDto('%PDF'),
@@ -277,7 +331,7 @@ final class SignedBufferBuilderTest extends TestCase
                 timestamp: $timestamp,
                 signatureProfile: $profile,
             ),
-            certificate: new \SignerPHP\PdfSigner\Application\DTO\SigningCertificateDto(''),
+            certificate: new \SignerPHP\PdfSigner\Application\DTO\SigningCertificateDto('', $chainPem),
         );
     }
 
