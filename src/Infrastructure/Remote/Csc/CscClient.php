@@ -31,7 +31,7 @@ final readonly class CscClient
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
-    public function post(string $operation, array $payload = []): array
+    public function post(string $operation, #[\SensitiveParameter] array $payload = []): array
     {
         if (! in_array($operation, ['info', 'credentials/list', 'credentials/info', 'credentials/authorize', 'signatures/signHash'], true)) {
             throw new \InvalidArgumentException('Unsupported CSC operation.');
@@ -45,14 +45,26 @@ final readonly class CscClient
 
         try {
             $response = $this->httpClient->request('POST', $url, $headers, $body, $this->timeoutSeconds);
+        } catch (\RuntimeException) {
+            if ($operation === 'signatures/signHash') {
+                throw new CscSignHashOutcomeUnknownException(
+                    'CSC signHash outcome is unknown; reconcile before resubmission.',
+                );
+            }
 
+            // Transport exception messages may contain tokens or URLs.
+            throw new SignerException(sprintf('CSC %s transport failed.', $operation));
+        }
+
+        try {
             return $this->decodeResponse($response, $operation);
-        } catch (\Throwable $exception) {
+        } catch (SignerException $exception) {
             if ($operation !== 'signatures/signHash') {
                 throw $exception;
             }
-            // Even HTTP errors and malformed replies cannot establish whether
-            // a remote private-key operation was already performed.
+
+            // The key operation could have completed despite a missing, malformed,
+            // or otherwise unusable HTTP response.
             throw new CscSignHashOutcomeUnknownException(
                 'CSC signHash outcome is unknown; reconcile before resubmission.',
             );
@@ -73,6 +85,11 @@ final readonly class CscClient
     /** @return array<string, mixed> */
     private function decodeResponse(HttpResponse $response, string $operation): array
     {
+        // A transport error invalidates even a seemingly successful status/body.
+        // The error text may contain URLs or authorization material.
+        if ($response->transportError !== null) {
+            throw new SignerException(sprintf('CSC %s transport failed.', $operation));
+        }
         if (! $response->isSuccessful()) {
             throw new SignerException(sprintf('CSC %s failed with HTTP %d.', $operation, $response->statusCode));
         }
