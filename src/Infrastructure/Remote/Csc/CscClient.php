@@ -10,6 +10,8 @@ use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
 
 final readonly class CscClient
 {
+    private const SIGN_HASH_OPERATION = 'signatures/signHash';
+
     public function __construct(
         private HttpClientInterface $httpClient,
         private string $baseUrl,
@@ -31,22 +33,45 @@ final readonly class CscClient
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
-    public function post(string $operation, array $payload = []): array
+    public function post(string $operation, #[\SensitiveParameter] array $payload = []): array
     {
-        if (! in_array($operation, ['info', 'credentials/list', 'credentials/info', 'credentials/authorize', 'signatures/signHash'], true)) {
+        if (! in_array($operation, ['info', 'credentials/list', 'credentials/info', 'credentials/authorize', self::SIGN_HASH_OPERATION], true)) {
             throw new \InvalidArgumentException('Unsupported CSC operation.');
         }
 
-        // An ambiguous timeout after signHash must not trigger an automatic retry.
-        $response = $this->httpClient->request(
-            'POST',
-            rtrim($this->baseUrl, '/').'/csc/v1/'.$operation,
-            $this->headers(),
-            json_encode($payload, JSON_THROW_ON_ERROR),
-            $this->timeoutSeconds,
-        );
+        $response = $this->sendRequest($operation, json_encode($payload, JSON_THROW_ON_ERROR));
 
-        return $this->decodeResponse($response, $operation);
+        try {
+            return $this->decodeResponse($response, $operation);
+        } catch (SignerException $exception) {
+            if ($operation !== self::SIGN_HASH_OPERATION) {
+                throw $exception;
+            }
+
+            throw new CscSignHashOutcomeUnknownException(
+                'CSC signHash outcome is unknown; reconcile before resubmission.',
+            );
+        }
+    }
+
+    private function sendRequest(string $operation, #[\SensitiveParameter] string $body): HttpResponse
+    {
+        $url = rtrim($this->baseUrl, '/').'/csc/v1/'.$operation;
+        $headers = $this->headers();
+
+        try {
+            return $this->httpClient->request('POST', $url, $headers, $body, $this->timeoutSeconds);
+        } catch (\LogicException $exception) {
+            throw $exception;
+        } catch (\Exception) {
+            if ($operation === self::SIGN_HASH_OPERATION) {
+                throw new CscSignHashOutcomeUnknownException(
+                    'CSC signHash outcome is unknown; reconcile before resubmission.',
+                );
+            }
+
+            throw new SignerException(sprintf('CSC %s transport failed.', $operation));
+        }
     }
 
     /** @return list<string> */
@@ -63,6 +88,9 @@ final readonly class CscClient
     /** @return array<string, mixed> */
     private function decodeResponse(HttpResponse $response, string $operation): array
     {
+        if ($response->transportError !== null) {
+            throw new SignerException(sprintf('CSC %s transport failed.', $operation));
+        }
         if (! $response->isSuccessful()) {
             throw new SignerException(sprintf('CSC %s failed with HTTP %d.', $operation, $response->statusCode));
         }
