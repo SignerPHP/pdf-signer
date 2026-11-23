@@ -242,6 +242,7 @@ final class CscModuleTest extends TestCase
         $calls = 0;
         $client = new CscClient(self::transport(function () use ($status, $body, &$calls) {
             $calls++;
+
             return new HttpResponse($status, $body);
         }), 'https://csc.example');
 

@@ -45,6 +45,7 @@ final readonly class CscClient
 
         try {
             $response = $this->httpClient->request('POST', $url, $headers, $body, $this->timeoutSeconds);
+
             return $this->decodeResponse($response, $operation);
         } catch (\Throwable $exception) {
             if ($operation !== 'signatures/signHash') {
