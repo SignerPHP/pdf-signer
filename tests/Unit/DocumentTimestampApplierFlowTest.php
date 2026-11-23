@@ -46,6 +46,39 @@ final class DocumentTimestampApplierFlowTest extends TestCase
         self::assertSame('sha256', $provider->receivedHashAlgorithm);
     }
 
+    public function test_timestamped_bytes_are_exactly_the_byte_range_of_the_final_document(): void
+    {
+        $input = PdfFixtureFactory::minimalPdf();
+
+        $provider = new class implements TimestampTokenProviderInterface
+        {
+            public string $timestampedBytes = '';
+
+            public function requestTokenHex(string $signableDocument, array $byteRange, TimestampOptionsDto $options): string
+            {
+                [$offset1, $length1, $offset2, $length2] = $byteRange;
+                $this->timestampedBytes = substr($signableDocument, $offset1, $length1).substr($signableDocument, $offset2, $length2);
+
+                return 'A1B2C3';
+            }
+        };
+
+        $result = (new DocumentTimestampApplier(timestampTokenProvider: $provider))->apply(
+            $input,
+            new TimestampOptionsDto(tsaUrl: 'https://tsa.local')
+        );
+
+        $matches = [];
+        preg_match_all('/\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/', $result, $matches, PREG_SET_ORDER);
+        $last = end($matches);
+        self::assertIsArray($last);
+        [, $offset1, $length1, $offset2, $length2] = array_map('intval', $last);
+
+        $covered = substr($result, $offset1, $length1).substr($result, $offset2, $length2);
+        self::assertSame(strlen($result), $offset2 + $length2, 'the ByteRange must reach the end of the file');
+        self::assertSame(hash('sha256', $covered), hash('sha256', $provider->timestampedBytes));
+    }
+
     public function test_apply_throws_when_provider_returns_non_hex_token(): void
     {
         $input = PdfFixtureFactory::minimalPdf();
