@@ -9,12 +9,23 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignerCertificateRevocationCheckerInterface;
 
 /**
- * Asks the OCSP responders listed in the signing certificate (AIA) for its status before a
- * long-term (LT/LTA) signature is produced. Only a definitive "revoked" answer is fatal:
- * without an issuer, responder URL or answer the signature proceeds as before.
+ * Asks every OCSP responder listed in the signing certificate (AIA) for its status before a
+ * long-term (LT/LTA) signature is produced.
+ *
+ * A response is only taken into account when OpenSSL verified it: its signature must chain
+ * to a self-signed root from the signer's own certificate chain (a delegated responder must
+ * carry id-kp-OCSPSigning), it must answer the nonce when the responder supports nonces,
+ * and it must be current (thisUpdate/nextUpdate with 5 minutes of clock skew; without
+ * nextUpdate, at most one day old). A verified "revoked" from any responder is fatal.
+ * Unverifiable, stale or missing answers keep the previous behaviour, so offline and
+ * OCSP-less certificates are not blocked.
  */
 final readonly class OpenSslOcspSignerCertificateRevocationChecker implements SignerCertificateRevocationCheckerInterface
 {
+    private const CLOCK_SKEW_SECONDS = 300;
+
+    private const MAX_STATUS_AGE_SECONDS = 86400;
+
     public function __construct(
         private X509ExtensionUrlExtractor $urlExtractor = new X509ExtensionUrlExtractor,
         private ProcessRunnerInterface $processRunner = new ShellProcessRunner,
@@ -29,47 +40,67 @@ final readonly class OpenSslOcspSignerCertificateRevocationChecker implements Si
 
         $urls = $this->urlExtractor->ocspUrls($certificate);
         $issuerPem = $this->findIssuer($certificate, $chainPem);
-        if ($urls === [] || $issuerPem === null) {
+        $trustAnchors = $this->selfSignedRoots($chainPem);
+        if ($urls === [] || $issuerPem === null || $trustAnchors === []) {
             return;
         }
 
-        $certificateFile = $this->tempFile('ocsp-signer-cert', $certificatePem);
-        $issuerFile = $this->tempFile('ocsp-signer-issuer', $issuerPem);
+        $files = [
+            'cert' => $this->tempFile('ocsp-signer-cert', $certificatePem),
+            'issuer' => $this->tempFile('ocsp-signer-issuer', $issuerPem),
+            'anchors' => $this->tempFile('ocsp-trust-anchors', implode("\n", $trustAnchors)),
+            'untrusted' => $this->tempFile('ocsp-chain', implode("\n", $chainPem)),
+        ];
 
         try {
             foreach ($urls as $url) {
-                $result = $this->processRunner->run(sprintf(
-                    'openssl ocsp -issuer %s -cert %s -url %s -noverify -no_nonce',
-                    escapeshellarg($issuerFile),
-                    escapeshellarg($certificateFile),
-                    escapeshellarg($url),
-                ));
-                if (! $result->succeeded()) {
-                    continue;
-                }
-
-                $output = $result->outputAsString();
-                if (preg_match('/:\s*revoked\b/i', $output) === 1) {
-                    $revokedAt = preg_match('/Revocation Time:\s*(.+)/i', $output, $m) === 1 ? ' at '.trim($m[1]) : '';
-                    $reason = preg_match('/Reason:\s*(.+)/i', $output, $m) === 1 ? ' ('.trim($m[1]).')' : '';
-
+                $revocation = $this->verifiedRevocation($url, $files);
+                if ($revocation !== null) {
                     throw new SignProcessException(sprintf(
-                        'The signing certificate "%s" is revoked according to the OCSP responder %s%s%s.',
+                        'The signing certificate "%s" is revoked according to the OCSP responder %s%s.',
                         $this->subject($certificate),
                         $url,
-                        $revokedAt,
-                        $reason,
+                        $revocation,
                     ));
-                }
-
-                if (preg_match('/:\s*good\b/i', $output) === 1) {
-                    return;
                 }
             }
         } finally {
-            @unlink($certificateFile);
-            @unlink($issuerFile);
+            foreach ($files as $file) {
+                @unlink($file);
+            }
         }
+    }
+
+    /**
+     * @param  array{cert:string, issuer:string, anchors:string, untrusted:string}  $files
+     * @return ?string revocation details when the responder returned a verified, current "revoked"
+     */
+    private function verifiedRevocation(string $url, array $files): ?string
+    {
+        $result = $this->processRunner->run(sprintf(
+            'openssl ocsp -issuer %s -cert %s -url %s -CAfile %s -verify_other %s -validity_period %d -status_age %d',
+            escapeshellarg($files['issuer']),
+            escapeshellarg($files['cert']),
+            escapeshellarg($url),
+            escapeshellarg($files['anchors']),
+            escapeshellarg($files['untrusted']),
+            self::CLOCK_SKEW_SECONDS,
+            self::MAX_STATUS_AGE_SECONDS,
+        ));
+        $output = $result->outputAsString();
+
+        $verified = $result->succeeded()
+            && preg_match('/^Response verify OK$/mi', $output) === 1
+            && preg_match('/Status times invalid/i', $output) !== 1
+            && preg_match('/nonce verify error/i', $output) !== 1;
+        if (! $verified || preg_match('/:\s*revoked\s*$/mi', $output) !== 1) {
+            return null;
+        }
+
+        $revokedAt = preg_match('/Revocation Time:\s*(.+)/i', $output, $m) === 1 ? ' at '.trim($m[1]) : '';
+        $reason = preg_match('/Reason:\s*(.+)/i', $output, $m) === 1 ? ' ('.trim($m[1]).')' : '';
+
+        return $revokedAt.$reason;
     }
 
     /**
@@ -86,6 +117,24 @@ final readonly class OpenSslOcspSignerCertificateRevocationChecker implements Si
         }
 
         return null;
+    }
+
+    /**
+     * @param  list<string>  $chainPem
+     * @return list<string>
+     */
+    private function selfSignedRoots(array $chainPem): array
+    {
+        $roots = [];
+        foreach ($chainPem as $candidatePem) {
+            $candidate = @openssl_x509_parse($candidatePem);
+            if (is_array($candidate) && ($candidate['subject'] ?? null) === ($candidate['issuer'] ?? false)
+                && openssl_x509_verify($candidatePem, $candidatePem) === 1) {
+                $roots[] = $candidatePem;
+            }
+        }
+
+        return $roots;
     }
 
     /**
