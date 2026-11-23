@@ -133,8 +133,6 @@ $signedPdf = Signer::externalSigner()->complete(
 
 `completeBase64()` accepts a base64-encoded raw signature. The prepared state contains the unsigned PDF and public certificate, but never a private key. Store it with the same access controls used for the source document.
 
-Remote signing can produce an **uncertain outcome**: an external key operation may have executed even when the response is lost or cannot be verified. The CSC adapter reports this as `CscSignHashOutcomeUnknownException`, a subtype of the provider-neutral `RemoteSigningOutcomeUnknownException`. Callers can handle the base exception without depending on a particular signing service. Do not automatically submit the same operation again; keep the attempt state and reconcile the outcome first. This library does not persist signing sessions or enforce cross-request idempotency.
-
 #### VIDaaS cloud certificates
 
 The VIDaaS module keeps OAuth, certificate discovery and RAW signing isolated behind provider-neutral remote-signing contracts. The access token authorizes use of the cloud-held private key; certificate discovery returns the public certificate and its remote identifier.
