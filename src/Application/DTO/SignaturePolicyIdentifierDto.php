@@ -18,12 +18,14 @@ final readonly class SignaturePolicyIdentifierDto
      * @param  string  $oid  dotted policy OID
      * @param  string  $digest  binary hash of the policy document (sigPolicyHash)
      * @param  ?string  $uri  optional SPURI qualifier
+     * @param  bool  $requiresSignatureTimestamp  the policy mandates id-aa-signatureTimeStampToken in the CMS
      */
     public function __construct(
         public string $oid,
         public string $digest,
         HashAlgorithm|string $hashAlgorithm = HashAlgorithm::Sha256,
         public ?string $uri = null,
+        public bool $requiresSignatureTimestamp = false,
     ) {
         if (preg_match('/^[0-2](\.(0|[1-9]\d*))+$/', $oid) !== 1) {
             throw new SignerException(sprintf('Invalid signature policy OID "%s".', $oid));
@@ -45,13 +47,18 @@ final readonly class SignaturePolicyIdentifierDto
         }
     }
 
-    public static function fromHex(string $oid, string $digestHex, HashAlgorithm|string $hashAlgorithm = HashAlgorithm::Sha256, ?string $uri = null): self
-    {
+    public static function fromHex(
+        string $oid,
+        string $digestHex,
+        HashAlgorithm|string $hashAlgorithm = HashAlgorithm::Sha256,
+        ?string $uri = null,
+        bool $requiresSignatureTimestamp = false,
+    ): self {
         $digest = ctype_xdigit($digestHex) && strlen($digestHex) % 2 === 0 ? hex2bin($digestHex) : false;
         if ($digest === false) {
             throw new SignerException('Signature policy digest must be a hexadecimal string.');
         }
 
-        return new self($oid, $digest, $hashAlgorithm, $uri);
+        return new self($oid, $digest, $hashAlgorithm, $uri, $requiresSignatureTimestamp);
     }
 }

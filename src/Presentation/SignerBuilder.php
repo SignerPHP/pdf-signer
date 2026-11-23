@@ -256,6 +256,13 @@ final class SignerBuilder
             throw new SignerException('A signature policy requires a PAdES profile (for example withPadesBaselineB()).');
         }
 
+        if ($this->signaturePolicy?->requiresSignatureTimestamp === true && $this->resolveTimestamp() === null) {
+            throw new SignerException(sprintf(
+                'Signature policy %s requires a signature timestamp. Use withTimestamp().',
+                $this->signaturePolicy->oid,
+            ));
+        }
+
         $request = new SignPdfRequestDto(
             new PdfContentDto($pdfContent),
             $this->certificate,

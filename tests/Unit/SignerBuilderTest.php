@@ -386,20 +386,36 @@ final class SignerBuilderTest extends TestCase
         self::assertSame('https://tsa.example.com', $capture->timestampUrl);
         self::assertNull($capture->oauthClientId);
         self::assertNotNull($capture->signaturePolicy);
-        self::assertSame(IcpBrasilPadesPolicy::AdRbV1_3->value, $capture->signaturePolicy->oid);
-        self::assertSame(IcpBrasilPadesPolicy::AdRbV1_3->uri(), $capture->signaturePolicy->uri);
+        self::assertSame(IcpBrasilPadesPolicy::AdRtV1_3->value, $capture->signaturePolicy->oid, 'the preset timestamps the signature, so it declares AD-RT');
+        self::assertSame(IcpBrasilPadesPolicy::AdRtV1_3->uri(), $capture->signaturePolicy->uri);
+        self::assertTrue($capture->signaturePolicy->requiresSignatureTimestamp);
     }
 
     public function test_brazil_policy_preset_accepts_another_icp_brasil_policy(): void
     {
         $options = (new BrazilSignaturePolicyOptionsDto('https://tsa.example.com'))
-            ->withSignaturePolicy(IcpBrasilPadesPolicy::AdRtV1_3)
+            ->withSignaturePolicy(IcpBrasilPadesPolicy::AdRbV1_3)
             ->withTimeoutSeconds(5)
             ->withTsa('https://other-tsa.example.com');
 
-        self::assertSame(IcpBrasilPadesPolicy::AdRtV1_3, $options->signaturePolicy);
+        self::assertSame(IcpBrasilPadesPolicy::AdRbV1_3, $options->signaturePolicy);
         self::assertSame(5, $options->timeoutSeconds);
         self::assertSame('https://other-tsa.example.com', $options->tsaUrl);
+    }
+
+    public function test_ad_rt_requires_a_timestamp(): void
+    {
+        $builder = SignerBuilder::new($this->fakeService());
+
+        $this->expectException(SignerException::class);
+        $this->expectExceptionMessage('Signature policy 2.16.76.1.7.1.12.1.3 requires a signature timestamp');
+        $builder
+            ->withPdfContent('pdf')
+            ->withCertificatePath('/tmp/cert.pfx', 'pwd')
+            ->withPadesBaselineB()
+            ->withoutTimestamp()
+            ->withSignaturePolicy(IcpBrasilPadesPolicy::AdRtV1_3)
+            ->sign();
     }
 
     public function test_signature_policy_requires_a_pades_profile(): void

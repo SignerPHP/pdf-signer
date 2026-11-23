@@ -105,7 +105,14 @@ final class ExternalSignerBuilder
      */
     public function withSignaturePolicy(SignaturePolicyIdentifierDto|IcpBrasilPadesPolicy $policy): self
     {
-        $this->signaturePolicy = $policy instanceof IcpBrasilPadesPolicy ? $policy->toIdentifier() : $policy;
+        $policy = $policy instanceof IcpBrasilPadesPolicy ? $policy->toIdentifier() : $policy;
+        if ($policy->requiresSignatureTimestamp) {
+            throw new SignerException(sprintf(
+                'Signature policy %s requires a signature timestamp, which the external signing lifecycle does not support yet.',
+                $policy->oid,
+            ));
+        }
+        $this->signaturePolicy = $policy;
 
         return $this;
     }

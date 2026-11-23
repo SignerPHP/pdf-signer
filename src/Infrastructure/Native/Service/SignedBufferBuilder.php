@@ -63,7 +63,14 @@ final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
             if (! $this->pkcs7Signer instanceof PolicyAwarePkcs7SignerInterface) {
                 throw new \LogicException('A signature policy requires a policy-aware CMS signer.');
             }
-            $signatureContents = $this->pkcs7Signer->signWithPolicy($signableDocument, $signatureProvider, $certificatePem, $profile, $signaturePolicy);
+            $signatureContents = $this->pkcs7Signer->signWithPolicy(
+                $signableDocument,
+                $signatureProvider,
+                $certificatePem,
+                $profile,
+                $signaturePolicy,
+                $context->options->timestamp,
+            );
         } elseif ($this->pkcs7Signer instanceof ProfileAwarePkcs7SignerInterface) {
             $signatureContents = $this->pkcs7Signer->signWithProfile($signableDocument, $signatureProvider, $certificatePem, $profile);
         } elseif ($profile === SignatureProfile::PdfBasic) {

@@ -33,6 +33,8 @@ final class DetachedCmsAssembler
 
     private const OID_SPQ_ETS_URI = '1.2.840.113549.1.9.16.5.1';
 
+    private const OID_SIGNATURE_TIMESTAMP_TOKEN = '1.2.840.113549.1.9.16.2.14';
+
     public function assemble(
         string $dataToSign,
         string $certificatePem,
@@ -74,7 +76,11 @@ final class DetachedCmsAssembler
         );
     }
 
-    public function complete(PreparedDetachedCms $prepared, SignatureValue $signature): string
+    /**
+     * @param  ?string  $signatureTimestampToken  DER TimeStampToken over the signature value; stored as the
+     *                                            unsigned attribute id-aa-signatureTimeStampToken (RFC 3161, appendix A)
+     */
+    public function complete(PreparedDetachedCms $prepared, SignatureValue $signature, ?string $signatureTimestampToken = null): string
     {
         if ($signature->bytes === '') {
             throw new SignProcessException('Signature provider returned an empty signature.');
@@ -98,6 +104,10 @@ final class DetachedCmsAssembler
             .$signedAttrsImplicit
             .$signatureAlgorithm
             .Der::octetString($signature->bytes)
+            .($signatureTimestampToken === null ? '' : Der::contextSpecific(1, Der::sequence(
+                Der::objectIdentifier(self::OID_SIGNATURE_TIMESTAMP_TOKEN)
+                .Der::set($signatureTimestampToken)
+            )))
         );
 
         $signedData = Der::sequence(

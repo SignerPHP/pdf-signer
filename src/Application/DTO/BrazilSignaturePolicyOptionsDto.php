@@ -20,7 +20,7 @@ final readonly class BrazilSignaturePolicyOptionsDto
         public ?string $serproConsumerKey = null,
         public ?string $serproConsumerSecret = null,
         public string $serproTokenUrl = self::SERPRO_TOKEN_URL,
-        public IcpBrasilPadesPolicy $signaturePolicy = IcpBrasilPadesPolicy::AdRbV1_3,
+        public IcpBrasilPadesPolicy $signaturePolicy = IcpBrasilPadesPolicy::AdRtV1_3,
     ) {
         $this->hashAlgorithm = HashAlgorithm::fromString($hashAlgorithm);
     }
@@ -113,7 +113,8 @@ final readonly class BrazilSignaturePolicyOptionsDto
     }
 
     /**
-     * ICP-Brasil PAdES policy declared in the signature (sigPolicyId). Defaults to AD-RB.
+     * ICP-Brasil PAdES policy declared in the signature (sigPolicyId). Defaults to AD-RT v1.3,
+     * which matches the preset: the CMS carries a signature timestamp from the configured TSA.
      */
     public function withSignaturePolicy(IcpBrasilPadesPolicy $signaturePolicy): self
     {

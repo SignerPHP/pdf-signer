@@ -9,14 +9,18 @@ use SignerPHP\PdfCore\SignatureObject;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\SignaturePolicyIdentifierDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
+use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
+use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PolicyAwarePkcs7SignerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\DetachedCmsAssembler;
 
 final class Pkcs7Signer implements PolicyAwarePkcs7SignerInterface
 {
     public function __construct(
         private readonly DetachedCmsAssembler $cmsAssembler = new DetachedCmsAssembler,
+        private readonly TimestampTokenProviderInterface $timestampTokenProvider = new OpenSslRfc3161TimestampTokenProvider,
     ) {}
 
     public function sign(
@@ -29,7 +33,7 @@ final class Pkcs7Signer implements PolicyAwarePkcs7SignerInterface
 
     public function signWithProfile(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile): string
     {
-        return $this->assembleHex($signableDocument, $signatureProvider, $certificatePem, $profile, null);
+        return $this->assembleHex($signableDocument, $signatureProvider, $certificatePem, $profile, null, null);
     }
 
     public function signWithPolicy(
@@ -38,8 +42,23 @@ final class Pkcs7Signer implements PolicyAwarePkcs7SignerInterface
         string $certificatePem,
         SignatureProfile $profile,
         SignaturePolicyIdentifierDto $signaturePolicy,
+        ?TimestampOptionsDto $signatureTimestamp = null,
     ): string {
-        return $this->assembleHex($signableDocument, $signatureProvider, $certificatePem, $profile, $signaturePolicy);
+        if ($signaturePolicy->requiresSignatureTimestamp && $signatureTimestamp === null) {
+            throw new SignProcessException(sprintf(
+                'Signature policy %s requires a signature timestamp; configure a TSA.',
+                $signaturePolicy->oid,
+            ));
+        }
+
+        return $this->assembleHex(
+            $signableDocument,
+            $signatureProvider,
+            $certificatePem,
+            $profile,
+            $signaturePolicy,
+            $signaturePolicy->requiresSignatureTimestamp ? $signatureTimestamp : null,
+        );
     }
 
     private function assembleHex(
@@ -48,18 +67,32 @@ final class Pkcs7Signer implements PolicyAwarePkcs7SignerInterface
         string $certificatePem,
         SignatureProfile $profile,
         ?SignaturePolicyIdentifierDto $signaturePolicy,
+        ?TimestampOptionsDto $signatureTimestamp,
     ): string {
         if ($certificatePem === '') {
             throw new SignProcessException('Signing certificate PEM is required to assemble CMS.');
         }
 
-        $cms = $this->cmsAssembler->assemble(
+        $prepared = $this->cmsAssembler->prepare(
             $signableDocument->raw(),
             $certificatePem,
-            $signatureProvider,
             profile: $profile,
             signaturePolicy: $signaturePolicy,
         );
+        $signature = $signatureProvider->sign(new SigningPayload($prepared->signedAttributes, $prepared->digestAlgorithm));
+
+        $timestampToken = null;
+        if ($signatureTimestamp !== null && $signature->bytes !== '') {
+            // RFC 3161 appendix A: the token's message imprint is the hash of the signature value.
+            $length = strlen($signature->bytes);
+            $tokenHex = $this->timestampTokenProvider->requestTokenHex($signature->bytes, [0, $length, $length, 0], $signatureTimestamp);
+            $timestampToken = ctype_xdigit($tokenHex) && strlen($tokenHex) % 2 === 0 ? hex2bin($tokenHex) : false;
+            if ($timestampToken === false || $timestampToken === '') {
+                throw new SignProcessException('The TSA returned an invalid signature timestamp token.');
+            }
+        }
+
+        $cms = $this->cmsAssembler->complete($prepared, $signature, $timestampToken);
 
         return str_pad(bin2hex($cms), SignatureObject::SIGNATURE_MAX_LENGTH, '0');
     }

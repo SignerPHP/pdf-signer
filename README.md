@@ -536,16 +536,16 @@ $signedPdf = Signer::signer()
 
 This preset applies `PAdES-LTA` + `DocMDP=2` + explicit policy timestamp.
 
-It also declares the ICP-Brasil signature policy in the CMS signed attributes (`id-aa-ets-sigPolicyId`, with the policy hash and URI from the official list `LPA_PAdES.der`). The default is **AD-RB v1.3**; choose another policy in force with:
+It also declares the ICP-Brasil signature policy **AD-RT v1.3** in the CMS signed attributes (`id-aa-ets-sigPolicyId`, with the policy hash and URI from the official list `LPA_PAdES.der`) and, as AD-RT requires, adds a signature timestamp from the configured TSA to the CMS (`id-aa-signatureTimeStampToken`). To declare AD-RB instead (no signature timestamp required):
 
 ```php
 use SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy;
 
 $policy = BrazilSignaturePolicyOptionsDto::tsa('https://tsa.your-provider.com')
- ->withSignaturePolicy(IcpBrasilPadesPolicy::AdRtV1_3);
+ ->withSignaturePolicy(IcpBrasilPadesPolicy::AdRbV1_3);
 ```
 
-Any PAdES signature (including the external signing lifecycle) can declare an explicit policy with `withSignaturePolicy(IcpBrasilPadesPolicy::AdRbV1_3)` or a custom `SignaturePolicyIdentifierDto`.
+Any PAdES signature can declare an explicit policy with `withSignaturePolicy(...)` (an `IcpBrasilPadesPolicy` or a custom `SignaturePolicyIdentifierDto`). AD-RT needs a TSA (`withTimestamp(...)`); the external signing lifecycle supports AD-RB only for now. AD-RC and AD-RA are not offered yet.
 
 To switch quickly to another TSA:
 

@@ -25,6 +25,14 @@ use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
 
 final class ExternalSigningTest extends TestCase
 {
+    public function test_external_signing_rejects_a_policy_that_requires_a_signature_timestamp(): void
+    {
+        $this->expectException(\SignerPHP\PdfSigner\Domain\Exception\SignerException::class);
+        $this->expectExceptionMessage('does not support yet');
+
+        Signer::externalSigner()->withSignaturePolicy(\SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy::AdRtV1_3);
+    }
+
     public function test_exposes_the_external_signer_through_the_public_facade(): void
     {
         expect(Signer::externalSigner())->toBeInstanceOf(ExternalSignerBuilder::class);

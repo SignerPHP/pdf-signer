@@ -277,6 +277,8 @@ final class SignedBufferBuilderTest extends TestCase
         $captured = new class
         {
             public ?SignaturePolicyIdentifierDto $policy = null;
+
+            public ?TimestampOptionsDto $signatureTimestamp = null;
         };
 
         $builder = new SignedBufferBuilder(
@@ -295,19 +297,29 @@ final class SignedBufferBuilderTest extends TestCase
                     return 'ABCD';
                 }
 
-                public function signWithPolicy(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile, SignaturePolicyIdentifierDto $signaturePolicy): string
+                public function signWithPolicy(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile, SignaturePolicyIdentifierDto $signaturePolicy, ?TimestampOptionsDto $signatureTimestamp = null): string
                 {
                     $this->captured->policy = $signaturePolicy;
+                    $this->captured->signatureTimestamp = $signatureTimestamp;
 
                     return 'ABCD';
                 }
             },
+            new class implements DocumentTimestampApplierInterface
+            {
+                public function apply(string $signedPdfContent, TimestampOptionsDto $options): string
+                {
+                    return $signedPdfContent;
+                }
+            },
         );
 
-        $policy = IcpBrasilPadesPolicy::AdRbV1_3->toIdentifier();
-        $builder->build($this->makePdfDocumentForSigning(), $this->makeSignatureHandlerWithCertificate(), $this->makeContext(SignatureProfile::PadesBaselineB, null, $policy), $this->makeProvider());
+        $policy = IcpBrasilPadesPolicy::AdRtV1_3->toIdentifier();
+        $tsa = new TimestampOptionsDto('https://tsa.example');
+        $builder->build($this->makePdfDocumentForSigning(), $this->makeSignatureHandlerWithCertificate(), $this->makeContext(SignatureProfile::PadesBaselineB, $tsa, $policy), $this->makeProvider());
 
         self::assertSame($policy, $captured->policy);
+        self::assertSame($tsa, $captured->signatureTimestamp, 'the TSA options reach the CMS signer for the signature timestamp');
     }
 
     public function test_build_rejects_a_signature_policy_without_a_policy_aware_signer(): void
