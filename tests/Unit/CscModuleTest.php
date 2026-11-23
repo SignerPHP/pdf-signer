@@ -18,6 +18,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
 use SignerPHP\PdfSigner\Infrastructure\Remote\Csc\CscCertificateDiscovery;
 use SignerPHP\PdfSigner\Infrastructure\Remote\Csc\CscClient;
 use SignerPHP\PdfSigner\Infrastructure\Remote\Csc\CscSignatureProvider;
+use SignerPHP\PdfSigner\Infrastructure\Remote\Csc\CscSignHashOutcomeUnknownException;
 use SignerPHP\PdfSigner\Presentation\Signer;
 use SignerPHP\PdfSigner\RemoteSigning\DTO\RemoteCertificate;
 use SignerPHP\PdfSigner\Tests\Support\PdfFixtureFactory;
@@ -152,7 +153,7 @@ final class CscModuleTest extends TestCase
         expect(fn () => (new CscSignatureProvider($client))->sign(
             self::payload(),
             new RemoteCertificate('lab/signer', new SigningCertificateDto($bundle['cert'])),
-        ))->toThrow(SignerException::class, 'inconsistent');
+        ))->toThrow(CscSignHashOutcomeUnknownException::class, 'reconcile');
     }
 
     #[DataProvider('unsupportedPayloads')]
@@ -231,8 +232,56 @@ final class CscModuleTest extends TestCase
         }), 'https://csc.example');
 
         expect(fn () => $client->post('signatures/signHash'))
-            ->toThrow(SignerException::class, 'HTTP 403');
+            ->toThrow(CscSignHashOutcomeUnknownException::class, 'reconcile');
         self::assertSame(1, $calls);
+    }
+
+    #[DataProvider('uncertainSignHashResponses')]
+    public function test_signhash_errors_are_typed_as_uncertain_without_retry(int $status, string $body): void
+    {
+        $calls = 0;
+        $client = new CscClient(self::transport(function () use ($status, $body, &$calls) {
+            $calls++;
+            return new HttpResponse($status, $body);
+        }), 'https://csc.example');
+
+        expect(fn () => $client->post('signatures/signHash'))
+            ->toThrow(CscSignHashOutcomeUnknownException::class, 'reconcile');
+        self::assertSame(1, $calls);
+    }
+
+    public static function uncertainSignHashResponses(): array
+    {
+        return [
+            'connection lost' => [0, ''],
+            'gateway error' => [503, 'unavailable'],
+            'invalid JSON after 200' => [200, '{'],
+            'unexpected list after 200' => [200, '[]'],
+        ];
+    }
+
+    public function test_transport_exceptions_after_signhash_submission_are_uncertain(): void
+    {
+        $calls = 0;
+        $client = new CscClient(self::transport(function () use (&$calls) {
+            $calls++;
+            throw new \RuntimeException('synthetic transport interruption');
+        }), 'https://csc.example');
+
+        expect(fn () => $client->post('signatures/signHash'))
+            ->toThrow(CscSignHashOutcomeUnknownException::class, 'reconcile');
+        self::assertSame(1, $calls);
+    }
+
+    public function test_pre_submission_discovery_failure_is_not_classified_uncertain(): void
+    {
+        $client = new CscClient(self::transport(fn () => new HttpResponse(503, 'unavailable')), 'https://csc.example');
+        try {
+            $client->post('credentials/info');
+            self::fail('Expected pre-submission failure');
+        } catch (SignerException $exception) {
+            self::assertNotInstanceOf(CscSignHashOutcomeUnknownException::class, $exception);
+        }
     }
 
     #[DataProvider('invalidSigningResponses')]
@@ -266,8 +315,16 @@ final class CscModuleTest extends TestCase
         });
         $credential = new RemoteCertificate('lab/signer', new SigningCertificateDto($bundle['cert']));
 
-        expect(fn () => (new CscSignatureProvider($client))->sign(self::payload(), $credential))
-            ->toThrow(SignerException::class);
+        try {
+            (new CscSignatureProvider($client))->sign(self::payload(), $credential);
+            self::fail('Expected CSC signing failure');
+        } catch (SignerException $exception) {
+            if ($expectedSignCalls === 0) {
+                self::assertNotInstanceOf(CscSignHashOutcomeUnknownException::class, $exception);
+            } else {
+                self::assertInstanceOf(CscSignHashOutcomeUnknownException::class, $exception);
+            }
+        }
         self::assertSame($expectedSignCalls, $signCalls);
     }
 

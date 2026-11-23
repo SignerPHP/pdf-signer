@@ -34,12 +34,11 @@ final readonly class CscSignatureProvider implements RemoteSignatureProviderInte
 
         try {
             return $this->validatedSignature($response, $certificate, $digest);
-        } catch (SignerException $exception) {
+        } catch (SignerException) {
             // A 2xx response with an invalid signature is still an attempted
             // private-key operation and must not be blindly repeated.
             throw new CscSignHashOutcomeUnknownException(
                 'CSC signHash response could not be verified; reconcile before resubmission.',
-                previous: $exception,
             );
         }
     }

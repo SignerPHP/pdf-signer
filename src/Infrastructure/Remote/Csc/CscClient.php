@@ -54,7 +54,6 @@ final readonly class CscClient
             // a remote private-key operation was already performed.
             throw new CscSignHashOutcomeUnknownException(
                 'CSC signHash outcome is unknown; reconcile before resubmission.',
-                previous: $exception,
             );
         }
     }
