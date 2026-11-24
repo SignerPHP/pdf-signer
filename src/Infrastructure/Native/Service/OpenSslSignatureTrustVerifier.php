@@ -49,6 +49,10 @@ final readonly class OpenSslSignatureTrustVerifier implements TimeAwareSignature
         }
 
         $signerIndex = $this->signerCertificateIndex($signatureHex, $certificatesDer);
+        if ($signerIndex === null) {
+            return new SignatureTrustVerification(false, 'Could not identify signer certificate from CMS payload.');
+        }
+
         $leafPem = $this->derToPem($certificatesDer[$signerIndex]);
         if ($leafPem === null) {
             return new SignatureTrustVerification(false, 'Could not decode signer certificate from CMS payload.');
@@ -144,14 +148,17 @@ final readonly class OpenSslSignatureTrustVerifier implements TimeAwareSignature
     /**
      * Index of the certificate that matches the first SignerInfo's sid (issuerAndSerialNumber or
      * subjectKeyIdentifier). The certificates SET is unordered - a TSA token commonly lists its CA
-     * first - so position alone does not identify the signer. Falls back to the first certificate.
+     * first - so position alone does not identify the signer. Reject missing or ambiguous matches.
      *
      * @param  array<int, string>  $certificatesDer
      */
-    private function signerCertificateIndex(string $signatureHex, array $certificatesDer): int
+    private function signerCertificateIndex(string $signatureHex, array $certificatesDer): ?int
     {
         try {
-            $cms = (string) hex2bin(strlen($signatureHex) % 2 === 0 ? $signatureHex : $signatureHex.'0');
+            if ($signatureHex === '' || strlen($signatureHex) % 2 !== 0 || ! ctype_xdigit($signatureHex)) {
+                return null;
+            }
+            $cms = (string) hex2bin($signatureHex);
             [, $contentInfo] = Der::readTlvStrict($cms);
             [, , $offset] = Der::readTlvStrict($contentInfo);
             [, $explicit] = Der::readTlvStrict($contentInfo, $offset);
@@ -172,19 +179,21 @@ final readonly class OpenSslSignatureTrustVerifier implements TimeAwareSignature
             [$sidTag, $sid, $sidEnd] = Der::readTlvStrict($signerInfo, $offset);
             $sidDer = substr($signerInfo, $offset, $sidEnd - $offset);
         } catch (\Throwable) {
-            return 0;
+            return null;
         }
 
-        foreach (array_values($certificatesDer) as $index => $certificateDer) {
-            if ($sidTag === 0x30 && $this->issuerAndSerial($certificateDer) === $sidDer) {
-                return array_keys($certificatesDer)[$index];
-            }
-            if ($sidTag === 0x80 && $this->subjectKeyIdentifier($certificateDer) === $sid) {
-                return array_keys($certificatesDer)[$index];
+        $match = null;
+        foreach ($certificatesDer as $index => $certificateDer) {
+            if (($sidTag === 0x30 && $this->issuerAndSerial($certificateDer) === $sidDer)
+                || ($sidTag === 0x80 && $this->subjectKeyIdentifier($certificateDer) === $sid)) {
+                if ($match !== null && $certificatesDer[$match] !== $certificateDer) {
+                    return null;
+                }
+                $match = $index;
             }
         }
 
-        return array_key_first($certificatesDer) ?? 0;
+        return $match;
     }
 
     /**
