@@ -12,12 +12,12 @@ use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PolicyAwarePkcs7SignerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ChainAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenValidatorInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\DetachedCmsAssembler;
 
-final class Pkcs7Signer implements PolicyAwarePkcs7SignerInterface
+final class Pkcs7Signer implements ChainAwarePkcs7SignerInterface
 {
     public function __construct(
         private readonly DetachedCmsAssembler $cmsAssembler = new DetachedCmsAssembler,
@@ -35,7 +35,7 @@ final class Pkcs7Signer implements PolicyAwarePkcs7SignerInterface
 
     public function signWithProfile(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile): string
     {
-        return $this->assembleHex($signableDocument, $signatureProvider, $certificatePem, $profile, null, null);
+        return $this->signWithChain($signableDocument, $signatureProvider, $certificatePem, $profile, []);
     }
 
     public function signWithPolicy(
@@ -46,6 +46,22 @@ final class Pkcs7Signer implements PolicyAwarePkcs7SignerInterface
         SignaturePolicyIdentifierDto $signaturePolicy,
         ?TimestampOptionsDto $signatureTimestamp = null,
     ): string {
+        return $this->signWithChain($signableDocument, $signatureProvider, $certificatePem, $profile, [], $signaturePolicy, $signatureTimestamp);
+    }
+
+    public function signWithChain(
+        Buffer $signableDocument,
+        SignatureProviderInterface $signatureProvider,
+        string $certificatePem,
+        SignatureProfile $profile,
+        array $certificateChainPem,
+        ?SignaturePolicyIdentifierDto $signaturePolicy = null,
+        ?TimestampOptionsDto $signatureTimestamp = null,
+    ): string {
+        if ($signaturePolicy === null) {
+            return $this->assembleHex($signableDocument, $signatureProvider, $certificatePem, $profile, $certificateChainPem, null, null);
+        }
+
         if ($signaturePolicy->requiresSignatureTimestamp && $signatureTimestamp === null) {
             throw new SignProcessException(sprintf(
                 'Signature policy %s requires a signature timestamp; configure a TSA.',
@@ -58,16 +74,21 @@ final class Pkcs7Signer implements PolicyAwarePkcs7SignerInterface
             $signatureProvider,
             $certificatePem,
             $profile,
+            $certificateChainPem,
             $signaturePolicy,
             $signaturePolicy->requiresSignatureTimestamp ? $signatureTimestamp : null,
         );
     }
 
+    /**
+     * @param  array<int, string>  $certificateChainPem
+     */
     private function assembleHex(
         Buffer $signableDocument,
         SignatureProviderInterface $signatureProvider,
         string $certificatePem,
         SignatureProfile $profile,
+        array $certificateChainPem,
         ?SignaturePolicyIdentifierDto $signaturePolicy,
         ?TimestampOptionsDto $signatureTimestamp,
     ): string {
@@ -78,6 +99,7 @@ final class Pkcs7Signer implements PolicyAwarePkcs7SignerInterface
         $prepared = $this->cmsAssembler->prepare(
             $signableDocument->raw(),
             $certificatePem,
+            certificateChainPem: $certificateChainPem,
             profile: $profile,
             signaturePolicy: $signaturePolicy,
         );

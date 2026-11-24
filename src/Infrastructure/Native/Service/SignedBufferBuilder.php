@@ -12,6 +12,7 @@ use SignerPHP\PdfCore\Xref\Xref;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ChainAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\LongTermValidationApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
@@ -65,8 +66,19 @@ final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
         $signableDocument = new Buffer($docToXref->raw().$signature->toPdfEntry().$docFromXref->raw());
         $certificatePem = $context->certificate->certificatePem;
         $profile = $context->options->signatureProfile;
+        $certificateChainPem = $context->certificate->chainPem;
         $signaturePolicy = $context->options->signaturePolicy;
-        if ($signaturePolicy !== null) {
+        if ($this->pkcs7Signer instanceof ChainAwarePkcs7SignerInterface && $certificateChainPem !== []) {
+            $signatureContents = $this->pkcs7Signer->signWithChain(
+                $signableDocument,
+                $signatureProvider,
+                $certificatePem,
+                $profile,
+                $certificateChainPem,
+                $signaturePolicy,
+                $signaturePolicy !== null ? $context->options->timestamp : null,
+            );
+        } elseif ($signaturePolicy !== null) {
             if (! $this->pkcs7Signer instanceof PolicyAwarePkcs7SignerInterface) {
                 throw new \LogicException('A signature policy requires a policy-aware CMS signer.');
             }
