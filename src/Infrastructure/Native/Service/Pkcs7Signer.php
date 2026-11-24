@@ -14,6 +14,7 @@ use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PolicyAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenValidatorInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\DetachedCmsAssembler;
 
 final class Pkcs7Signer implements PolicyAwarePkcs7SignerInterface
@@ -21,6 +22,7 @@ final class Pkcs7Signer implements PolicyAwarePkcs7SignerInterface
     public function __construct(
         private readonly DetachedCmsAssembler $cmsAssembler = new DetachedCmsAssembler,
         private readonly TimestampTokenProviderInterface $timestampTokenProvider = new OpenSslRfc3161TimestampTokenProvider,
+        private readonly TimestampTokenValidatorInterface $timestampTokenValidator = new OpenSslRfc3161TimestampTokenValidator,
     ) {}
 
     public function sign(
@@ -90,10 +92,15 @@ final class Pkcs7Signer implements PolicyAwarePkcs7SignerInterface
             if ($timestampToken === false || $timestampToken === '') {
                 throw new SignProcessException('The TSA returned an invalid signature timestamp token.');
             }
+            $this->timestampTokenValidator->assertValid($timestampToken, $signature->bytes);
         }
 
         $cms = $this->cmsAssembler->complete($prepared, $signature, $timestampToken);
+        $hex = bin2hex($cms);
+        if (strlen($hex) > SignatureObject::SIGNATURE_MAX_LENGTH) {
+            throw new SignProcessException('CMS signature exceeds the reserved PDF signature size.');
+        }
 
-        return str_pad(bin2hex($cms), SignatureObject::SIGNATURE_MAX_LENGTH, '0');
+        return str_pad($hex, SignatureObject::SIGNATURE_MAX_LENGTH, '0');
     }
 }

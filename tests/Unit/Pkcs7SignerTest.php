@@ -12,6 +12,7 @@ use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenValidatorInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProvider;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Pkcs7Signer;
@@ -51,8 +52,13 @@ final class Pkcs7SignerTest extends TestCase
         $payload = "%PDF-1.4\n1 0 obj<<>>endobj\nstartxref\n0\n%%EOF\n";
         $token = Der::sequence(Der::objectIdentifier('1.2.840.113549.1.7.2'));
         $tsa = $this->tsa(bin2hex($token));
+        // This test checks CMS assembly; RFC 3161 cryptographic validation is exercised separately.
+        $validator = new class implements TimestampTokenValidatorInterface
+        {
+            public function assertValid(string $tokenDer, string $signatureValue): void {}
+        };
 
-        $result = (new Pkcs7Signer(timestampTokenProvider: $tsa))->signWithPolicy(
+        $result = (new Pkcs7Signer(timestampTokenProvider: $tsa, timestampTokenValidator: $validator))->signWithPolicy(
             new Buffer($payload),
             new LocalPrivateKeySignatureProvider($bundle['pkey']),
             $bundle['cert'],
@@ -72,6 +78,30 @@ final class Pkcs7SignerTest extends TestCase
         ));
         self::assertStringContainsString(Der::octetString($data).$unsignedAttributes, $cms, 'the token covers the signature value');
         self::assertTrue(Pkcs12Fixture::cmsVerifies($cms, $payload));
+    }
+
+    public function test_ad_rt_rejects_a_timestamp_larger_than_the_pdf_signature_placeholder(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $validator = new class implements TimestampTokenValidatorInterface
+        {
+            public function assertValid(string $tokenDer, string $signatureValue): void {}
+        };
+
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('exceeds the reserved PDF signature size');
+
+        (new Pkcs7Signer(
+            timestampTokenProvider: $this->tsa(str_repeat('30', SignatureObject::SIGNATURE_MAX_LENGTH)),
+            timestampTokenValidator: $validator,
+        ))->signWithPolicy(
+            new Buffer('payload'),
+            new LocalPrivateKeySignatureProvider($bundle['pkey']),
+            $bundle['cert'],
+            SignatureProfile::PadesBaselineB,
+            IcpBrasilPadesPolicy::AdRtV1_3->toIdentifier(),
+            new TimestampOptionsDto('https://tsa.example'),
+        );
     }
 
     public function test_ad_rb_does_not_request_a_signature_timestamp(): void
