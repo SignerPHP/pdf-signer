@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Tests\Integration;
 
 use PHPUnit\Framework\TestCase;
+use SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslCmsCertificateCollector;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureExtractor;
 use SignerPHP\PdfSigner\Presentation\Signer;
@@ -53,7 +54,29 @@ final class CertificateChainInSignatureTest extends TestCase
 
     public function test_signature_embeds_the_pkcs12_chain(): void
     {
-        $signature = (new PdfSignatureExtractor)->extract($this->signedPdf())[0];
+        self::assertSame(['Chain-Test-Intermediate', 'Chain-Test-Root', 'Chain-Test-Signer'], $this->embeddedSubjects($this->signedPdf()));
+    }
+
+    public function test_signature_with_an_icp_brasil_policy_still_embeds_the_chain(): void
+    {
+        $pdf = Signer::signer()
+            ->withPdfContent(PdfFixtureFactory::minimalPdf())
+            ->withCertificatePath(self::$dir.'/signer.pfx', 'secret')
+            ->withPadesBaselineB()
+            ->withSignaturePolicy(IcpBrasilPadesPolicy::AdRbV1_3)
+            ->withoutTimestamp()
+            ->withoutDefaultAppearance()
+            ->sign();
+
+        self::assertSame(['Chain-Test-Intermediate', 'Chain-Test-Root', 'Chain-Test-Signer'], $this->embeddedSubjects($pdf));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function embeddedSubjects(string $pdf): array
+    {
+        $signature = (new PdfSignatureExtractor)->extract($pdf)[0];
         $subjects = array_map(
             static fn (string $der): string => (string) openssl_x509_parse(
                 "-----BEGIN CERTIFICATE-----\n".chunk_split(base64_encode($der), 64, "\n")."-----END CERTIFICATE-----\n"
@@ -62,7 +85,8 @@ final class CertificateChainInSignatureTest extends TestCase
         );
 
         sort($subjects);
-        self::assertSame(['Chain-Test-Intermediate', 'Chain-Test-Root', 'Chain-Test-Signer'], $subjects);
+
+        return $subjects;
     }
 
     public function test_validator_trusting_only_the_root_validates_the_chain(): void

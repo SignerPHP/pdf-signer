@@ -6,13 +6,16 @@ namespace SignerPHP\PdfSigner\Infrastructure\Native\Contract;
 
 use SignerPHP\PdfCore\Buffer;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
+use SignerPHP\PdfSigner\Application\DTO\SignaturePolicyIdentifierDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
+use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 
 /**
  * CMS signer able to embed the signer's certificate chain in the SignedData certificates set,
- * so validators can build the path to a trust anchor from the signature alone.
+ * so validators can build the path to a trust anchor from the signature alone. The chain can be
+ * combined with an explicit signature policy, as ICP-Brasil signatures need both.
  */
-interface ChainAwarePkcs7SignerInterface extends ProfileAwarePkcs7SignerInterface
+interface ChainAwarePkcs7SignerInterface extends PolicyAwarePkcs7SignerInterface
 {
     /**
      * @param  list<string>  $certificateChainPem  intermediate (and optionally root) certificates
@@ -23,5 +26,7 @@ interface ChainAwarePkcs7SignerInterface extends ProfileAwarePkcs7SignerInterfac
         string $certificatePem,
         SignatureProfile $profile,
         array $certificateChainPem,
+        ?SignaturePolicyIdentifierDto $signaturePolicy = null,
+        ?TimestampOptionsDto $signatureTimestamp = null,
     ): string;
 }

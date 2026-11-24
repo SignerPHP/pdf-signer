@@ -16,6 +16,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ChainAwarePkcs7SignerInte
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\LongTermValidationApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PolicyAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProfileAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignedBufferBuilderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\XrefContentResolverInterface;
@@ -59,8 +60,29 @@ final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
         $certificatePem = $context->certificate->certificatePem;
         $profile = $context->options->signatureProfile;
         $certificateChainPem = $context->certificate->chainPem;
+        $signaturePolicy = $context->options->signaturePolicy;
         if ($this->pkcs7Signer instanceof ChainAwarePkcs7SignerInterface && $certificateChainPem !== []) {
-            $signatureContents = $this->pkcs7Signer->signWithChain($signableDocument, $signatureProvider, $certificatePem, $profile, $certificateChainPem);
+            $signatureContents = $this->pkcs7Signer->signWithChain(
+                $signableDocument,
+                $signatureProvider,
+                $certificatePem,
+                $profile,
+                $certificateChainPem,
+                $signaturePolicy,
+                $signaturePolicy !== null ? $context->options->timestamp : null,
+            );
+        } elseif ($signaturePolicy !== null) {
+            if (! $this->pkcs7Signer instanceof PolicyAwarePkcs7SignerInterface) {
+                throw new \LogicException('A signature policy requires a policy-aware CMS signer.');
+            }
+            $signatureContents = $this->pkcs7Signer->signWithPolicy(
+                $signableDocument,
+                $signatureProvider,
+                $certificatePem,
+                $profile,
+                $signaturePolicy,
+                $context->options->timestamp,
+            );
         } elseif ($this->pkcs7Signer instanceof ProfileAwarePkcs7SignerInterface) {
             $signatureContents = $this->pkcs7Signer->signWithProfile($signableDocument, $signatureProvider, $certificatePem, $profile);
         } elseif ($profile === SignatureProfile::PdfBasic) {

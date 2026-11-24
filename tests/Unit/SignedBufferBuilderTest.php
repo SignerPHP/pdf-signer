@@ -9,7 +9,9 @@ use SignerPHP\PdfCore\Buffer;
 use SignerPHP\PdfCore\PdfDocument;
 use SignerPHP\PdfCore\SignatureObject;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
+use SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy;
 use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
+use SignerPHP\PdfSigner\Application\DTO\SignaturePolicyIdentifierDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
@@ -20,6 +22,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ChainAwarePkcs7SignerInte
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\LongTermValidationApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PolicyAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProfileAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\XrefContentResolverInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignatureHandler;
@@ -270,6 +273,85 @@ final class SignedBufferBuilderTest extends TestCase
         };
     }
 
+    public function test_build_passes_the_signature_policy_to_a_policy_aware_signer(): void
+    {
+        $captured = new class
+        {
+            public ?SignaturePolicyIdentifierDto $policy = null;
+
+            public ?TimestampOptionsDto $signatureTimestamp = null;
+        };
+
+        $builder = new SignedBufferBuilder(
+            $this->xrefResolver(),
+            new class($captured) implements PolicyAwarePkcs7SignerInterface
+            {
+                public function __construct(private object $captured) {}
+
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
+                {
+                    return 'ABCD';
+                }
+
+                public function signWithProfile(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile): string
+                {
+                    return 'ABCD';
+                }
+
+                public function signWithPolicy(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile, SignaturePolicyIdentifierDto $signaturePolicy, ?TimestampOptionsDto $signatureTimestamp = null): string
+                {
+                    $this->captured->policy = $signaturePolicy;
+                    $this->captured->signatureTimestamp = $signatureTimestamp;
+
+                    return 'ABCD';
+                }
+            },
+            new class implements DocumentTimestampApplierInterface
+            {
+                public function apply(string $signedPdfContent, TimestampOptionsDto $options): string
+                {
+                    return $signedPdfContent;
+                }
+            },
+        );
+
+        $policy = IcpBrasilPadesPolicy::AdRtV1_3->toIdentifier();
+        $tsa = new TimestampOptionsDto('https://tsa.example');
+        $builder->build($this->makePdfDocumentForSigning(), $this->makeSignatureHandlerWithCertificate(), $this->makeContext(SignatureProfile::PadesBaselineB, $tsa, $policy), $this->makeProvider());
+
+        self::assertSame($policy, $captured->policy);
+        self::assertSame($tsa, $captured->signatureTimestamp, 'the TSA options reach the CMS signer for the signature timestamp');
+    }
+
+    public function test_build_rejects_a_signature_policy_without_a_policy_aware_signer(): void
+    {
+        $builder = new SignedBufferBuilder(
+            $this->xrefResolver(),
+            new class implements ProfileAwarePkcs7SignerInterface
+            {
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
+                {
+                    return 'ABCD';
+                }
+
+                public function signWithProfile(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile): string
+                {
+                    return 'ABCD';
+                }
+            },
+        );
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('policy-aware CMS signer');
+
+        $builder->build(
+            $this->makePdfDocumentForSigning(),
+            $this->makeSignatureHandlerWithCertificate(),
+            $this->makeContext(SignatureProfile::PadesBaselineB, null, IcpBrasilPadesPolicy::AdRbV1_3->toIdentifier()),
+            $this->makeProvider(),
+        );
+    }
+
     public function test_build_passes_the_certificate_chain_to_a_chain_aware_signer(): void
     {
         $captured = new class
@@ -277,17 +359,15 @@ final class SignedBufferBuilderTest extends TestCase
             /** @var list<string>|null */
             public ?array $chain = null;
 
+            public ?SignaturePolicyIdentifierDto $policy = null;
+
+            public ?TimestampOptionsDto $signatureTimestamp = null;
+
             public bool $usedProfileOnly = false;
         };
 
         $builder = new SignedBufferBuilder(
-            new class implements XrefContentResolverInterface
-            {
-                public function resolve(PdfDocument $pdfDocument, array $objectOffsets, int $xrefOffset): Buffer
-                {
-                    return new Buffer('XREF');
-                }
-            },
+            $this->xrefResolver(),
             new class($captured) implements ChainAwarePkcs7SignerInterface
             {
                 public function __construct(private object $captured) {}
@@ -304,18 +384,40 @@ final class SignedBufferBuilderTest extends TestCase
                     return 'ABCD';
                 }
 
-                public function signWithChain(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile, array $certificateChainPem): string
+                public function signWithPolicy(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile, SignaturePolicyIdentifierDto $signaturePolicy, ?TimestampOptionsDto $signatureTimestamp = null): string
+                {
+                    return $this->signWithChain($signableDocument, $signatureProvider, $certificatePem, $profile, [], $signaturePolicy, $signatureTimestamp);
+                }
+
+                public function signWithChain(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile, array $certificateChainPem, ?SignaturePolicyIdentifierDto $signaturePolicy = null, ?TimestampOptionsDto $signatureTimestamp = null): string
                 {
                     $this->captured->chain = $certificateChainPem;
+                    $this->captured->policy = $signaturePolicy;
+                    $this->captured->signatureTimestamp = $signatureTimestamp;
 
                     return 'ABCD';
                 }
             },
+            new class implements DocumentTimestampApplierInterface
+            {
+                public function apply(string $signedPdfContent, TimestampOptionsDto $options): string
+                {
+                    return $signedPdfContent;
+                }
+            },
         );
 
-        $builder->build($this->makePdfDocumentForSigning(), $this->makeSignatureHandlerWithCertificate(), $this->makeContext(SignatureProfile::PadesBaselineB, null, ['INTERMEDIATE', 'ROOT']), $this->makeProvider());
+        $builder->build($this->makePdfDocumentForSigning(), $this->makeSignatureHandlerWithCertificate(), $this->makeContext(SignatureProfile::PadesBaselineB, null, chainPem: ['INTERMEDIATE', 'ROOT']), $this->makeProvider());
         self::assertSame(['INTERMEDIATE', 'ROOT'], $captured->chain);
+        self::assertNull($captured->policy);
         self::assertFalse($captured->usedProfileOnly);
+
+        $policy = IcpBrasilPadesPolicy::AdRtV1_3->toIdentifier();
+        $tsa = new TimestampOptionsDto('https://tsa.example');
+        $builder->build($this->makePdfDocumentForSigning(), $this->makeSignatureHandlerWithCertificate(), $this->makeContext(SignatureProfile::PadesBaselineB, $tsa, $policy, ['INTERMEDIATE']), $this->makeProvider());
+        self::assertSame(['INTERMEDIATE'], $captured->chain, 'an ICP-Brasil policy signature still embeds the chain');
+        self::assertSame($policy, $captured->policy);
+        self::assertSame($tsa, $captured->signatureTimestamp);
 
         $captured->chain = null;
         $builder->build($this->makePdfDocumentForSigning(), $this->makeSignatureHandlerWithCertificate(), $this->makeContext(SignatureProfile::PadesBaselineB, null), $this->makeProvider());
@@ -323,13 +425,28 @@ final class SignedBufferBuilderTest extends TestCase
         self::assertTrue($captured->usedProfileOnly);
     }
 
-    private function makeContext(SignatureProfile $profile, ?TimestampOptionsDto $timestamp, array $chainPem = []): SigningContextDto
+    private function xrefResolver(): XrefContentResolverInterface
+    {
+        return new class implements XrefContentResolverInterface
+        {
+            public function resolve(PdfDocument $pdfDocument, array $objectOffsets, int $xrefOffset): Buffer
+            {
+                return new Buffer('XREF');
+            }
+        };
+    }
+
+    /**
+     * @param  list<string>  $chainPem
+     */
+    private function makeContext(SignatureProfile $profile, ?TimestampOptionsDto $timestamp, ?SignaturePolicyIdentifierDto $signaturePolicy = null, array $chainPem = []): SigningContextDto
     {
         return new SigningContextDto(
             pdf: new PdfContentDto('%PDF'),
             options: new SigningOptionsDto(
                 timestamp: $timestamp,
                 signatureProfile: $profile,
+                signaturePolicy: $signaturePolicy,
             ),
             certificate: new \SignerPHP\PdfSigner\Application\DTO\SigningCertificateDto('', $chainPem),
         );

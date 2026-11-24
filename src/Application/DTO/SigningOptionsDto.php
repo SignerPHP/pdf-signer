@@ -13,6 +13,7 @@ final readonly class SigningOptionsDto
         public bool $useDefaultAppearance = true,
         public SignatureProfile $signatureProfile = SignatureProfile::PdfBasic,
         public ?CertificationLevel $certificationLevel = null,
+        public ?SignaturePolicyIdentifierDto $signaturePolicy = null,
     ) {}
 
     public static function empty(): self

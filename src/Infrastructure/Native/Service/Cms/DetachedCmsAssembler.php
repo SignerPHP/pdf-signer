@@ -7,6 +7,7 @@ namespace SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignaturePolicyIdentifierDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
@@ -28,6 +29,12 @@ final class DetachedCmsAssembler
 
     private const OID_SIGNING_CERTIFICATE_V2 = '1.2.840.113549.1.9.16.2.47';
 
+    private const OID_SIGNATURE_POLICY_ID = '1.2.840.113549.1.9.16.2.15';
+
+    private const OID_SPQ_ETS_URI = '1.2.840.113549.1.9.16.5.1';
+
+    private const OID_SIGNATURE_TIMESTAMP_TOKEN = '1.2.840.113549.1.9.16.2.14';
+
     public function assemble(
         string $dataToSign,
         string $certificatePem,
@@ -36,8 +43,13 @@ final class DetachedCmsAssembler
         ?\DateTimeInterface $signingTime = null,
         array $certificateChainPem = [],
         SignatureProfile $profile = SignatureProfile::PdfBasic,
+        ?SignaturePolicyIdentifierDto $signaturePolicy = null,
     ): string {
-        $prepared = $this->prepare($dataToSign, $certificatePem, $algorithm, $signingTime, $certificateChainPem, $profile);
+        if ($signaturePolicy?->requiresSignatureTimestamp) {
+            throw new SignProcessException(sprintf('Signature policy %s requires a signature timestamp; use a timestamp-aware signer.', $signaturePolicy->oid));
+        }
+
+        $prepared = $this->prepare($dataToSign, $certificatePem, $algorithm, $signingTime, $certificateChainPem, $profile, $signaturePolicy);
         $signature = $signatureProvider->sign(new SigningPayload($prepared->signedAttributes, $algorithm));
 
         return $this->complete($prepared, $signature);
@@ -50,21 +62,35 @@ final class DetachedCmsAssembler
         ?\DateTimeInterface $signingTime = null,
         array $certificateChainPem = [],
         SignatureProfile $profile = SignatureProfile::PdfBasic,
+        ?SignaturePolicyIdentifierDto $signaturePolicy = null,
     ): PreparedDetachedCms {
+        if ($signaturePolicy !== null && $profile === SignatureProfile::PdfBasic) {
+            throw new SignProcessException('A signature policy identifier requires a PAdES (CAdES-based) profile.');
+        }
+
         $certificate = X509Certificate::fromPem($certificatePem);
         $digest = hash($algorithm->value, $dataToSign, true);
 
         return new PreparedDetachedCms(
             $certificatePem,
-            $this->signedAttributesSet($digest, $signingTime ?? new \DateTimeImmutable('now'), $certificate, $algorithm, $profile),
+            $this->signedAttributesSet($digest, $signingTime ?? new \DateTimeImmutable('now'), $certificate, $algorithm, $profile, $signaturePolicy),
             $algorithm,
             $certificate->keyType() === 'ec' ? SignatureAlgorithm::Ecdsa : SignatureAlgorithm::RsaPkcs1V15,
             $certificateChainPem,
+            $signaturePolicy,
         );
     }
 
-    public function complete(PreparedDetachedCms $prepared, SignatureValue $signature): string
+    /**
+     * @param  ?string  $signatureTimestampToken  DER TimeStampToken over the signature value; stored as the
+     *                                            unsigned attribute id-aa-signatureTimeStampToken (RFC 3161, appendix A)
+     */
+    public function complete(PreparedDetachedCms $prepared, SignatureValue $signature, ?string $signatureTimestampToken = null): string
     {
+        if ($prepared->signaturePolicy?->requiresSignatureTimestamp && $signatureTimestampToken === null) {
+            throw new SignProcessException(sprintf('Signature policy %s requires a signature timestamp.', $prepared->signaturePolicy->oid));
+        }
+
         if ($signature->bytes === '') {
             throw new SignProcessException('Signature provider returned an empty signature.');
         }
@@ -87,6 +113,10 @@ final class DetachedCmsAssembler
             .$signedAttrsImplicit
             .$signatureAlgorithm
             .Der::octetString($signature->bytes)
+            .($signatureTimestampToken === null ? '' : Der::contextSpecific(1, Der::sequence(
+                Der::objectIdentifier(self::OID_SIGNATURE_TIMESTAMP_TOKEN)
+                .Der::set($signatureTimestampToken)
+            )))
         );
 
         $signedData = Der::sequence(
@@ -103,8 +133,14 @@ final class DetachedCmsAssembler
         );
     }
 
-    private function signedAttributesSet(string $messageDigest, \DateTimeInterface $signingTime, X509Certificate $certificate, HashAlgorithm $algorithm, SignatureProfile $profile): string
-    {
+    private function signedAttributesSet(
+        string $messageDigest,
+        \DateTimeInterface $signingTime,
+        X509Certificate $certificate,
+        HashAlgorithm $algorithm,
+        SignatureProfile $profile,
+        ?SignaturePolicyIdentifierDto $signaturePolicy = null,
+    ): string {
         $attributes = [
             Der::sequence(
                 Der::objectIdentifier(self::OID_CONTENT_TYPE)
@@ -140,9 +176,42 @@ final class DetachedCmsAssembler
                 .Der::set(Der::sequence(Der::sequence($essCertId)))
             );
         }
+        if ($signaturePolicy !== null) {
+            $attributes[] = $this->signaturePolicyAttribute($signaturePolicy);
+        }
         sort($attributes, SORT_STRING);
 
         return Der::set(implode('', $attributes));
+    }
+
+    /**
+     * SignaturePolicyIdentifier ::= SignaturePolicyId (RFC 5126, 5.8.1):
+     *   SEQUENCE { sigPolicyId OID, sigPolicyHash OtherHashAlgAndValue, sigPolicyQualifiers OPTIONAL }
+     * The hash AlgorithmIdentifier omits parameters, matching the ICP-Brasil policy list.
+     */
+    private function signaturePolicyAttribute(SignaturePolicyIdentifierDto $policy): string
+    {
+        $qualifiers = '';
+        if ($policy->uri !== null) {
+            $qualifiers = Der::sequence(Der::sequence(
+                Der::objectIdentifier(self::OID_SPQ_ETS_URI)
+                .Der::tlv(0x16, $policy->uri)
+            ));
+        }
+
+        $signaturePolicyId = Der::sequence(
+            Der::objectIdentifier($policy->oid)
+            .Der::sequence(
+                Der::algorithmIdentifier($this->digestOid($policy->hashAlgorithm), withNullParameters: false)
+                .Der::octetString($policy->digest)
+            )
+            .$qualifiers
+        );
+
+        return Der::sequence(
+            Der::objectIdentifier(self::OID_SIGNATURE_POLICY_ID)
+            .Der::set($signaturePolicyId)
+        );
     }
 
     private function digestOid(HashAlgorithm $algorithm): array
