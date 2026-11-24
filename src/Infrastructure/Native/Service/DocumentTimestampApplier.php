@@ -44,7 +44,11 @@ final readonly class DocumentTimestampApplier implements DocumentTimestampApplie
 
         $signableDocument = new Buffer($docToXref->raw().$timestamp->toPdfEntry().$docFromXref->raw());
         $byteRange = $this->extractByteRangeValues((string) $timestamp['ByteRange']);
-        $timestampHex = $this->timestampTokenProvider->requestTokenHex($signableDocument->raw(), $byteRange, $options);
+        $timestampHex = $this->timestampTokenProvider->requestTokenHex(
+            $signableDocument->raw(),
+            $this->byteRangeWithinSignableDocument($byteRange, $signableDocument->size()),
+            $options,
+        );
         $timestampHex = $this->normalizeTimestampHexSize($timestampHex);
 
         $timestamp['Contents'] = new PDFValueHexString($timestampHex);
@@ -72,6 +76,28 @@ final readonly class DocumentTimestampApplier implements DocumentTimestampApplie
         }
 
         return str_pad($timestampHex, $max, '0');
+    }
+
+    /**
+     * The signable buffer is the final document without the /Contents placeholder, so the
+     * covered bytes are contiguous there: [0, length1] followed directly by [length1, length2].
+     * The final document's offsets would point past the end of this buffer.
+     *
+     * @param  array{0:int,1:int,2:int,3:int}  $byteRange
+     * @return array{0:int,1:int,2:int,3:int}
+     */
+    private function byteRangeWithinSignableDocument(array $byteRange, int $signableSize): array
+    {
+        [, $length1, , $length2] = $byteRange;
+        if ($length1 + $length2 !== $signableSize) {
+            throw new SignProcessException(sprintf(
+                'Document timestamp ByteRange covers %d bytes but the signable document has %d.',
+                $length1 + $length2,
+                $signableSize,
+            ));
+        }
+
+        return [0, $length1, $length1, $length2];
     }
 
     /**
