@@ -53,6 +53,78 @@ final readonly class X509Certificate
         );
     }
 
+    /**
+     * Normalize PKCS#12 extra certificates and supplied PEM bundles to individual
+     * certificates, deduplicated by DER. Empty entries are allowed, but malformed
+     * nonempty entries must never silently disappear from the signature.
+     *
+     * @param  list<string>  $chain
+     * @return list<string>
+     */
+    public static function normalizeChain(array $chain): array
+    {
+        $certificates = [];
+        foreach ($chain as $entry) {
+            if (trim($entry, " \t\r\n") === '') {
+                continue;
+            }
+
+            if (str_starts_with($entry, "\x30") || ! str_contains($entry, '-----BEGIN CERTIFICATE-----')) {
+                // The CMS assembler also accepts individual DER certificates.
+                $der = $entry;
+                $certificates[$der] ??= self::validatedChainCertificatePem($der);
+
+                continue;
+            }
+
+            $remaining = preg_replace_callback(
+                '/-----BEGIN CERTIFICATE-----([A-Za-z0-9+\/=\s]+)-----END CERTIFICATE-----/',
+                static function (array $match) use (&$certificates): string {
+                    $der = base64_decode(preg_replace('/\s+/', '', $match[1]) ?? '', true);
+                    if ($der === false || $der === '') {
+                        throw new SignProcessException('Invalid certificate in CMS certificate chain.');
+                    }
+
+                    $certificates[$der] ??= self::validatedChainCertificatePem($der);
+
+                    return '';
+                },
+                $entry,
+            );
+            if ($remaining === null || trim($remaining, " \t\r\n") !== '') {
+                throw new SignProcessException('Invalid certificate in CMS certificate chain.');
+            }
+        }
+
+        return array_values($certificates);
+    }
+
+    private static function validatedChainCertificatePem(string $der): string
+    {
+        $pem = "-----BEGIN CERTIFICATE-----\n".chunk_split(base64_encode($der), 64, "\n")."-----END CERTIFICATE-----\n";
+        // A malformed certificate is an expected input error. Use the same scoped
+        // error handling as the external signing certificate validator.
+        set_error_handler(static fn (): bool => true);
+        try {
+            $certificate = openssl_x509_read($pem);
+        } finally {
+            restore_error_handler();
+        }
+        if ($certificate === false) {
+            throw new SignProcessException('Invalid certificate in CMS certificate chain.');
+        }
+
+        // OpenSSL can read a certificate followed by trailing bytes. Require exactly
+        // one DER object, as the CMS assembler embeds the complete byte sequence.
+        try {
+            self::fromPem($pem);
+        } catch (SignProcessException $exception) {
+            throw new SignProcessException('Invalid certificate in CMS certificate chain.', previous: $exception);
+        }
+
+        return $pem;
+    }
+
     public function keyType(): string
     {
         $parsed = openssl_pkey_get_details(openssl_pkey_get_public($this->pem) ?: throw new SignProcessException('Could not read signing certificate public key.'));

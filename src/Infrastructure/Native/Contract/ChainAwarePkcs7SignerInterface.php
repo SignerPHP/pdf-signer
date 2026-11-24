@@ -12,7 +12,7 @@ use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 
 /**
  * CMS signer able to embed the signer's certificate chain in the SignedData certificates set,
- * so validators can build the path to a trust anchor from the signature alone. The chain can be
+ * so validators can build a path to an independently trusted anchor. The chain can be
  * combined with an explicit signature policy, as ICP-Brasil signatures need both.
  */
 interface ChainAwarePkcs7SignerInterface extends PolicyAwarePkcs7SignerInterface

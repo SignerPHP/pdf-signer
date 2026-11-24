@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace SignerPHP\PdfSigner\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfCore\Buffer;
 use SignerPHP\PdfCore\SignatureObject;
+use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
 use SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
@@ -14,6 +16,7 @@ use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenValidatorInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\X509Certificate;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProvider;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Pkcs7Signer;
 use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
@@ -44,6 +47,66 @@ final class Pkcs7SignerTest extends TestCase
         self::assertSame(SignatureObject::SIGNATURE_MAX_LENGTH, strlen($result));
         self::assertSame(str_pad(bin2hex($cms), SignatureObject::SIGNATURE_MAX_LENGTH, '0'), $result);
         self::assertTrue(Pkcs12Fixture::cmsVerifies($cms, $payload));
+    }
+
+    #[DataProvider('invalidChainEntries')]
+    public function test_rejects_invalid_chain_entries_before_requesting_a_signature(string $entry): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $provider = $this->createMock(SignatureProviderInterface::class);
+        $provider->expects(self::never())->method('sign');
+
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('Invalid certificate in CMS certificate chain');
+
+        (new Pkcs7Signer)->signWithChain(
+            new Buffer('payload'),
+            $provider,
+            $bundle['cert'],
+            SignatureProfile::PadesBaselineB,
+            [$bundle['cert'], $entry],
+        );
+    }
+
+    /** @return array<string, array{string}> */
+    public static function invalidChainEntries(): array
+    {
+        return [
+            'non-certificate text' => ['not a certificate'],
+            'non-whitespace null byte' => ["\0"],
+            'malformed PEM' => ["-----BEGIN CERTIFICATE-----\nnot-valid-base64!\n-----END CERTIFICATE-----"],
+            'invalid base64 padding' => ["-----BEGIN CERTIFICATE-----\nA===\n-----END CERTIFICATE-----"],
+            'base64 containing non-X509 DER' => ["-----BEGIN CERTIFICATE-----\nMAMCAQA=\n-----END CERTIFICATE-----"],
+        ];
+    }
+
+    #[DataProvider('certificateWithTrailingDataFormats')]
+    public function test_rejects_a_valid_certificate_followed_by_trailing_data(bool $der): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $certificate = $der ? X509Certificate::fromPem($bundle['cert'])->der : $bundle['cert'];
+        $provider = $this->createMock(SignatureProviderInterface::class);
+        $provider->expects(self::never())->method('sign');
+
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('Invalid certificate in CMS certificate chain');
+
+        (new Pkcs7Signer)->signWithChain(
+            new Buffer('payload'),
+            $provider,
+            $bundle['cert'],
+            SignatureProfile::PadesBaselineB,
+            [$certificate.'unexpected data'],
+        );
+    }
+
+    /** @return array<string, array{bool}> */
+    public static function certificateWithTrailingDataFormats(): array
+    {
+        return [
+            'DER' => [true],
+            'PEM' => [false],
+        ];
     }
 
     public function test_ad_rt_adds_a_signature_timestamp_over_the_signature_value(): void

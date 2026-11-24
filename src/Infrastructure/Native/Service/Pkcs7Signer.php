@@ -99,7 +99,7 @@ final class Pkcs7Signer implements ChainAwarePkcs7SignerInterface
         $prepared = $this->cmsAssembler->prepare(
             $signableDocument->raw(),
             $certificatePem,
-            certificateChainPem: $this->certificateBlocks($certificateChainPem),
+            certificateChainPem: $certificateChainPem,
             profile: $profile,
             signaturePolicy: $signaturePolicy,
         );
@@ -124,25 +124,5 @@ final class Pkcs7Signer implements ChainAwarePkcs7SignerInterface
         }
 
         return str_pad($hex, SignatureObject::SIGNATURE_MAX_LENGTH, '0');
-    }
-
-    /**
-     * PKCS#12 "extracerts" may hold empty entries or several certificates in one string;
-     * keep each PEM certificate block once.
-     *
-     * @param  array<int, string>  $certificateChainPem
-     * @return list<string>
-     */
-    private function certificateBlocks(array $certificateChainPem): array
-    {
-        $blocks = [];
-        foreach ($certificateChainPem as $pem) {
-            preg_match_all('/-----BEGIN CERTIFICATE-----[A-Za-z0-9+\/=\s]+-----END CERTIFICATE-----/', $pem, $matches);
-            foreach ($matches[0] as $block) {
-                $blocks[$block] = $block."\n";
-            }
-        }
-
-        return array_values($blocks);
     }
 }
