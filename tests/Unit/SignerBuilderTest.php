@@ -12,11 +12,13 @@ use SignerPHP\PdfSigner\Application\Contract\PdfSigningEngineInterface;
 use SignerPHP\PdfSigner\Application\DTO\BrazilSignaturePolicyOptionsDto;
 use SignerPHP\PdfSigner\Application\DTO\CertificateCredentialsDto;
 use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
+use SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy;
 use SignerPHP\PdfSigner\Application\DTO\LocalSigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\ProtectionOptionsDto;
 use SignerPHP\PdfSigner\Application\DTO\ProtectPdfRequestDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAppearanceDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureMetadataDto;
+use SignerPHP\PdfSigner\Application\DTO\SignaturePolicyIdentifierDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Application\Service\PdfProtectionService;
@@ -344,6 +346,8 @@ final class SignerBuilderTest extends TestCase
             public ?string $timestampUrl = null;
 
             public ?string $oauthClientId = null;
+
+            public ?SignaturePolicyIdentifierDto $signaturePolicy = null;
         };
 
         $validator = new class implements CertificateValidatorInterface
@@ -360,6 +364,7 @@ final class SignerBuilderTest extends TestCase
 
             public function sign(LocalSigningContextDto $context): string
             {
+                $this->capture->signaturePolicy = $context->signingContext->options->signaturePolicy;
                 $this->capture->signatureProfile = $context->signingContext->options->signatureProfile;
                 $this->capture->certificationLevel = $context->signingContext->options->certificationLevel;
                 $this->capture->timestampUrl = $context->signingContext->options->timestamp?->tsaUrl;
@@ -380,6 +385,50 @@ final class SignerBuilderTest extends TestCase
         self::assertSame(CertificationLevel::FormFillAndSignatures, $capture->certificationLevel);
         self::assertSame('https://tsa.example.com', $capture->timestampUrl);
         self::assertNull($capture->oauthClientId);
+        self::assertNotNull($capture->signaturePolicy);
+        self::assertSame(IcpBrasilPadesPolicy::AdRtV1_3->value, $capture->signaturePolicy->oid, 'the preset timestamps the signature, so it declares AD-RT');
+        self::assertSame(IcpBrasilPadesPolicy::AdRtV1_3->uri(), $capture->signaturePolicy->uri);
+        self::assertTrue($capture->signaturePolicy->requiresSignatureTimestamp);
+    }
+
+    public function test_brazil_policy_preset_accepts_another_icp_brasil_policy(): void
+    {
+        $options = (new BrazilSignaturePolicyOptionsDto('https://tsa.example.com'))
+            ->withSignaturePolicy(IcpBrasilPadesPolicy::AdRbV1_3)
+            ->withTimeoutSeconds(5)
+            ->withTsa('https://other-tsa.example.com');
+
+        self::assertSame(IcpBrasilPadesPolicy::AdRbV1_3, $options->signaturePolicy);
+        self::assertSame(5, $options->timeoutSeconds);
+        self::assertSame('https://other-tsa.example.com', $options->tsaUrl);
+    }
+
+    public function test_ad_rt_requires_a_timestamp(): void
+    {
+        $builder = SignerBuilder::new($this->fakeService());
+
+        $this->expectException(SignerException::class);
+        $this->expectExceptionMessage('Signature policy 2.16.76.1.7.1.12.1.3 requires a signature timestamp');
+        $builder
+            ->withPdfContent('pdf')
+            ->withCertificatePath('/tmp/cert.pfx', 'pwd')
+            ->withPadesBaselineB()
+            ->withoutTimestamp()
+            ->withSignaturePolicy(IcpBrasilPadesPolicy::AdRtV1_3)
+            ->sign();
+    }
+
+    public function test_signature_policy_requires_a_pades_profile(): void
+    {
+        $builder = SignerBuilder::new($this->fakeService());
+
+        $this->expectException(SignerException::class);
+        $this->expectExceptionMessage('A signature policy requires a PAdES profile');
+        $builder
+            ->withPdfContent('pdf')
+            ->withCertificatePath('/tmp/cert.pfx', 'pwd')
+            ->withSignaturePolicy(IcpBrasilPadesPolicy::AdRbV1_3)
+            ->sign();
     }
 
     public function test_builder_applies_brazil_policy_preset_with_serpro_credentials(): void

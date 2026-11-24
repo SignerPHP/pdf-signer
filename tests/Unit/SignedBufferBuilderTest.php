@@ -9,7 +9,9 @@ use SignerPHP\PdfCore\Buffer;
 use SignerPHP\PdfCore\PdfDocument;
 use SignerPHP\PdfCore\SignatureObject;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderInterface;
+use SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy;
 use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
+use SignerPHP\PdfSigner\Application\DTO\SignaturePolicyIdentifierDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValue;
 use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
@@ -19,6 +21,7 @@ use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\LongTermValidationApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PolicyAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProfileAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\XrefContentResolverInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignatureHandler;
@@ -269,13 +272,104 @@ final class SignedBufferBuilderTest extends TestCase
         };
     }
 
-    private function makeContext(SignatureProfile $profile, ?TimestampOptionsDto $timestamp): SigningContextDto
+    public function test_build_passes_the_signature_policy_to_a_policy_aware_signer(): void
+    {
+        $captured = new class
+        {
+            public ?SignaturePolicyIdentifierDto $policy = null;
+
+            public ?TimestampOptionsDto $signatureTimestamp = null;
+        };
+
+        $builder = new SignedBufferBuilder(
+            $this->xrefResolver(),
+            new class($captured) implements PolicyAwarePkcs7SignerInterface
+            {
+                public function __construct(private object $captured) {}
+
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
+                {
+                    return 'ABCD';
+                }
+
+                public function signWithProfile(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile): string
+                {
+                    return 'ABCD';
+                }
+
+                public function signWithPolicy(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile, SignaturePolicyIdentifierDto $signaturePolicy, ?TimestampOptionsDto $signatureTimestamp = null): string
+                {
+                    $this->captured->policy = $signaturePolicy;
+                    $this->captured->signatureTimestamp = $signatureTimestamp;
+
+                    return 'ABCD';
+                }
+            },
+            new class implements DocumentTimestampApplierInterface
+            {
+                public function apply(string $signedPdfContent, TimestampOptionsDto $options): string
+                {
+                    return $signedPdfContent;
+                }
+            },
+        );
+
+        $policy = IcpBrasilPadesPolicy::AdRtV1_3->toIdentifier();
+        $tsa = new TimestampOptionsDto('https://tsa.example');
+        $builder->build($this->makePdfDocumentForSigning(), $this->makeSignatureHandlerWithCertificate(), $this->makeContext(SignatureProfile::PadesBaselineB, $tsa, $policy), $this->makeProvider());
+
+        self::assertSame($policy, $captured->policy);
+        self::assertSame($tsa, $captured->signatureTimestamp, 'the TSA options reach the CMS signer for the signature timestamp');
+    }
+
+    public function test_build_rejects_a_signature_policy_without_a_policy_aware_signer(): void
+    {
+        $builder = new SignedBufferBuilder(
+            $this->xrefResolver(),
+            new class implements ProfileAwarePkcs7SignerInterface
+            {
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
+                {
+                    return 'ABCD';
+                }
+
+                public function signWithProfile(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile): string
+                {
+                    return 'ABCD';
+                }
+            },
+        );
+
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('policy-aware CMS signer');
+
+        $builder->build(
+            $this->makePdfDocumentForSigning(),
+            $this->makeSignatureHandlerWithCertificate(),
+            $this->makeContext(SignatureProfile::PadesBaselineB, null, IcpBrasilPadesPolicy::AdRbV1_3->toIdentifier()),
+            $this->makeProvider(),
+        );
+    }
+
+    private function xrefResolver(): XrefContentResolverInterface
+    {
+        return new class implements XrefContentResolverInterface
+        {
+            public function resolve(PdfDocument $pdfDocument, array $objectOffsets, int $xrefOffset): Buffer
+            {
+                return new Buffer('XREF');
+            }
+        };
+    }
+
+    private function makeContext(SignatureProfile $profile, ?TimestampOptionsDto $timestamp, ?SignaturePolicyIdentifierDto $signaturePolicy = null): SigningContextDto
     {
         return new SigningContextDto(
             pdf: new PdfContentDto('%PDF'),
             options: new SigningOptionsDto(
                 timestamp: $timestamp,
                 signatureProfile: $profile,
+                signaturePolicy: $signaturePolicy,
             ),
             certificate: new \SignerPHP\PdfSigner\Application\DTO\SigningCertificateDto(''),
         );
