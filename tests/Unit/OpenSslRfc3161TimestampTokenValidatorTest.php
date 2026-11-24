@@ -7,6 +7,7 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslRfc3161TimestampTokenValidator;
 
 final class OpenSslRfc3161TimestampTokenValidatorTest extends TestCase
@@ -40,6 +41,20 @@ final class OpenSslRfc3161TimestampTokenValidatorTest extends TestCase
         (new OpenSslRfc3161TimestampTokenValidator)->assertValid($token, $signature);
         if (! $mustReject) {
             self::assertTrue(true);
+        }
+    }
+
+    public function test_reports_temporary_file_allocation_failure(): void
+    {
+        NativeFunctionOverrideState::$forceTempnamFailure = true;
+
+        try {
+            $this->expectException(SignProcessException::class);
+            $this->expectExceptionMessage('Could not create temporary files for signature timestamp verification.');
+
+            (new OpenSslRfc3161TimestampTokenValidator)->assertValid('token', 'signature');
+        } finally {
+            NativeFunctionOverrideState::$forceTempnamFailure = false;
         }
     }
 
