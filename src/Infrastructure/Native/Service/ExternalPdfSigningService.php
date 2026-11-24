@@ -33,6 +33,16 @@ final readonly class ExternalPdfSigningService
 
     public function prepare(SigningContextDto $context, HashAlgorithm $algorithm = HashAlgorithm::Sha256): PreparedExternalSignature
     {
+        // complete() only receives the raw signature, so it cannot add id-aa-signatureTimeStampToken:
+        // a policy that mandates it must never be prepared here.
+        $signaturePolicy = $context->options->signaturePolicy;
+        if ($signaturePolicy !== null && $signaturePolicy->requiresSignatureTimestamp) {
+            throw new SignProcessException(sprintf(
+                'Signature policy %s requires a signature timestamp, which the external signing lifecycle does not support yet.',
+                $signaturePolicy->oid,
+            ));
+        }
+
         $pdfDocument = $this->documentPreparer->prepare($context->pdf->content);
         $signatureHandler = $this->signatureFactory->create($context, $pdfDocument);
         $pdfDocument->updateModifyDate();
@@ -54,6 +64,7 @@ final readonly class ExternalPdfSigningService
             $algorithm,
             certificateChainPem: $context->certificate->chainPem,
             profile: $context->options->signatureProfile,
+            signaturePolicy: $context->options->signaturePolicy,
         );
 
         return new PreparedExternalSignature(

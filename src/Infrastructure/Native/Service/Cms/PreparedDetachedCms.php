@@ -6,6 +6,7 @@ namespace SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms;
 
 use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\SignatureAlgorithm;
+use SignerPHP\PdfSigner\Application\DTO\SignaturePolicyIdentifierDto;
 
 final readonly class PreparedDetachedCms
 {
@@ -16,5 +17,6 @@ final readonly class PreparedDetachedCms
         public HashAlgorithm $digestAlgorithm,
         public SignatureAlgorithm $signatureAlgorithm,
         public array $certificateChainPem = [],
+        public ?SignaturePolicyIdentifierDto $signaturePolicy = null,
     ) {}
 }

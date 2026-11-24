@@ -20,6 +20,7 @@ final readonly class BrazilSignaturePolicyOptionsDto
         public ?string $serproConsumerKey = null,
         public ?string $serproConsumerSecret = null,
         public string $serproTokenUrl = self::SERPRO_TOKEN_URL,
+        public IcpBrasilPadesPolicy $signaturePolicy = IcpBrasilPadesPolicy::AdRtV1_3,
     ) {
         $this->hashAlgorithm = HashAlgorithm::fromString($hashAlgorithm);
     }
@@ -65,6 +66,7 @@ final readonly class BrazilSignaturePolicyOptionsDto
             serproConsumerKey: $this->serproConsumerKey,
             serproConsumerSecret: $this->serproConsumerSecret,
             serproTokenUrl: $this->serproTokenUrl,
+            signaturePolicy: $this->signaturePolicy,
         );
     }
 
@@ -78,6 +80,7 @@ final readonly class BrazilSignaturePolicyOptionsDto
             serproConsumerKey: $this->serproConsumerKey,
             serproConsumerSecret: $this->serproConsumerSecret,
             serproTokenUrl: $this->serproTokenUrl,
+            signaturePolicy: $this->signaturePolicy,
         );
     }
 
@@ -91,6 +94,7 @@ final readonly class BrazilSignaturePolicyOptionsDto
             serproConsumerKey: $this->serproConsumerKey,
             serproConsumerSecret: $this->serproConsumerSecret,
             serproTokenUrl: $this->serproTokenUrl,
+            signaturePolicy: $this->signaturePolicy,
         );
     }
 
@@ -104,6 +108,25 @@ final readonly class BrazilSignaturePolicyOptionsDto
             serproConsumerKey: $clientId,
             serproConsumerSecret: $clientSecret,
             serproTokenUrl: $tokenUrl,
+            signaturePolicy: $this->signaturePolicy,
+        );
+    }
+
+    /**
+     * ICP-Brasil PAdES policy declared in the signature (sigPolicyId). Defaults to AD-RT v1.3,
+     * which matches the preset: the CMS carries a signature timestamp from the configured TSA.
+     */
+    public function withSignaturePolicy(IcpBrasilPadesPolicy $signaturePolicy): self
+    {
+        return new self(
+            tsaUrl: $this->tsaUrl,
+            hashAlgorithm: $this->hashAlgorithm->value,
+            timeoutSeconds: $this->timeoutSeconds,
+            certReq: $this->certReq,
+            serproConsumerKey: $this->serproConsumerKey,
+            serproConsumerSecret: $this->serproConsumerSecret,
+            serproTokenUrl: $this->serproTokenUrl,
+            signaturePolicy: $signaturePolicy,
         );
     }
 

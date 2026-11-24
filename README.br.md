@@ -404,6 +404,17 @@ $signedPdf = Signer::signer()
 
 Esse preset aplica `PAdES-LTA` + `DocMDP=2` + timestamp explícito de política.
 
+Ele também declara a política de assinatura ICP-Brasil **AD-RT v1.3** nos atributos assinados do CMS (`id-aa-ets-sigPolicyId`, com o hash e a URI da política conforme a lista oficial `LPA_PAdES.der`) e, como a AD-RT exige, adiciona ao CMS um carimbo do tempo da assinatura emitido pela TSA configurada (`id-aa-signatureTimeStampToken`). Para declarar AD-RB (sem carimbo do tempo obrigatório):
+
+```php
+use SignerPHP\PdfSigner\Application\DTO\IcpBrasilPadesPolicy;
+
+$policy = BrazilSignaturePolicyOptionsDto::tsa('https://tsa.seu-provedor.com.br')
+ ->withSignaturePolicy(IcpBrasilPadesPolicy::AdRbV1_3);
+```
+
+Qualquer assinatura PAdES pode declarar uma política explícita com `withSignaturePolicy(...)` (um `IcpBrasilPadesPolicy` ou um `SignaturePolicyIdentifierDto` próprio). A AD-RT exige TSA (`withTimestamp(...)`); o fluxo de assinatura externa suporta apenas AD-RB por enquanto. AD-RC e AD-RA ainda não são oferecidas.
+
 Para trocar facilmente para outro TSA:
 
 ```php
