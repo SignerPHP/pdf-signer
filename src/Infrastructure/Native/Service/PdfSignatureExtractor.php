@@ -29,7 +29,8 @@ final class PdfSignatureExtractor implements PdfSignatureExtractorInterface
             ];
 
             $dictionary = $this->resolveCandidateDictionary($pdfContent, $offset);
-            if (! preg_match('/\/Type\s*\/Sig\b/', $dictionary)) {
+            // Signature dictionaries and document timestamps (ISO 32000-2, 12.8.5) both carry a ByteRange.
+            if (! preg_match('/\/Type\s*\/(?:Sig|DocTimeStamp)\b/', $dictionary)) {
                 continue;
             }
 
@@ -46,7 +47,8 @@ final class PdfSignatureExtractor implements PdfSignatureExtractorInterface
                 signatureHex: $signatureHex,
                 signedContent: $signedContent,
                 byteRangeValid: $byteRangeValid,
-                byteRangeError: $byteRangeError
+                byteRangeError: $byteRangeError,
+                subFilter: preg_match('/\/SubFilter\s*\/([^\s\/\[\]<>()]+)/', $dictionary, $subFilterMatch) === 1 ? $subFilterMatch[1] : null,
             );
         }
 

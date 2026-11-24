@@ -108,4 +108,32 @@ final class Der
 
         return [$tag, substr($der, $offset, $length), $offset + $length];
     }
+
+    /**
+     * readTlv() with bounds checks: truncated or oversized input throws instead of being read past its end.
+     *
+     * @return array{0:int,1:string,2:int}
+     */
+    public static function readTlvStrict(string $der, int $offset = 0): array
+    {
+        if ($offset + 2 > strlen($der)) {
+            throw new \UnexpectedValueException('Truncated DER.');
+        }
+
+        $first = ord($der[$offset + 1]);
+        $header = 2 + (($first & 0x80) === 0 ? 0 : ($first & 0x7F));
+        if (($first & 0x7F) > 4 && ($first & 0x80) !== 0) {
+            throw new \UnexpectedValueException('Unsupported DER length.');
+        }
+        if ($offset + $header > strlen($der)) {
+            throw new \UnexpectedValueException('Truncated DER length.');
+        }
+
+        $tlv = self::readTlv($der, $offset);
+        if ($tlv[2] > strlen($der)) {
+            throw new \UnexpectedValueException('DER value exceeds its container.');
+        }
+
+        return $tlv;
+    }
 }

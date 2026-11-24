@@ -20,9 +20,9 @@ final class OpenSslCmsCertificateCollector implements SignatureCertificateCollec
             return [];
         }
 
-        // Signature slots are padded with zeros; remove trailing null bytes represented as 00.
-        $hex = preg_replace('/(?:00)+$/', '', $hex) ?? $hex;
-        if ($hex === '' || (strlen($hex) % 2) !== 0 || ! ctype_xdigit($hex)) {
+        // OpenSSL reads the ASN.1 object length itself. Do not strip trailing zero bytes:
+        // a legitimate DER value can end in zero, followed by the PDF Contents padding.
+        if ((strlen($hex) % 2) !== 0 || ! ctype_xdigit($hex)) {
             return [];
         }
 

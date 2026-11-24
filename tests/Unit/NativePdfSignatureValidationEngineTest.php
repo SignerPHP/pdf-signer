@@ -111,6 +111,78 @@ final class NativePdfSignatureValidationEngineTest extends TestCase
         self::assertTrue($result->entries[0]->byteRangeValid);
     }
 
+    public function test_document_timestamps_are_verified_as_rfc3161_tokens(): void
+    {
+        $extractor = new class implements PdfSignatureExtractorInterface
+        {
+            public function extract(string $pdfContent): array
+            {
+                return [
+                    new ExtractedPdfSignature(0, [0, 10, 20, 5], 'CMS', 'signature-content', true, null, 'ETSI.CAdES.detached'),
+                    new ExtractedPdfSignature(1, [0, 30, 40, 5], 'TOKEN', 'timestamp-content', true, null, 'ETSI.RFC3161'),
+                ];
+            }
+        };
+
+        $calls = new class
+        {
+            /** @var list<string> */
+            public array $cms = [];
+
+            /** @var list<string> */
+            public array $timestamps = [];
+        };
+
+        $cmsVerifier = new class($calls) implements SignatureCryptoVerifierInterface
+        {
+            public function __construct(private object $calls) {}
+
+            public function verify(string $signedContent, string $signatureHex): SignatureCryptoVerification
+            {
+                $this->calls->cms[] = $signatureHex;
+
+                return new SignatureCryptoVerification(true);
+            }
+        };
+
+        $timestampVerifier = new class($calls) implements SignatureCryptoVerifierInterface
+        {
+            public function __construct(private object $calls) {}
+
+            public function verify(string $signedContent, string $signatureHex): SignatureCryptoVerification
+            {
+                $this->calls->timestamps[] = $signatureHex;
+
+                return new SignatureCryptoVerification(false, 'Timestamp message imprint does not match the signed ByteRange.');
+            }
+        };
+
+        $trustVerifier = new class implements SignatureTrustVerifierInterface
+        {
+            public function verify(string $signatureHex, SignatureValidationOptionsDto $options): SignatureTrustVerification
+            {
+                return new SignatureTrustVerification(true);
+            }
+        };
+        $policyVerifier = new class implements BrazilPolicyListVerifierInterface
+        {
+            public function verifyPadesPolicy(SignatureValidationOptionsDto $options): SignaturePolicyVerification
+            {
+                return new SignaturePolicyVerification(true);
+            }
+        };
+
+        $result = (new NativePdfSignatureValidationEngine($extractor, $cmsVerifier, $trustVerifier, $policyVerifier, $timestampVerifier))
+            ->validate(new ValidatePdfRequestDto(new PdfContentDto('pdf')));
+
+        self::assertSame(['CMS'], $calls->cms);
+        self::assertSame(['TOKEN'], $calls->timestamps);
+        self::assertTrue($result->entries[0]->valid);
+        self::assertFalse($result->entries[1]->valid);
+        self::assertSame('Timestamp message imprint does not match the signed ByteRange.', $result->entries[1]->reason);
+        self::assertFalse($result->allValid);
+    }
+
     public function test_validate_wraps_unexpected_errors(): void
     {
         $extractor = new class implements PdfSignatureExtractorInterface

@@ -16,5 +16,15 @@ final readonly class ExtractedPdfSignature
         public string $signedContent,
         public bool $byteRangeValid,
         public ?string $byteRangeError = null,
+        public ?string $subFilter = null,
     ) {}
+
+    /**
+     * A document timestamp (/SubFilter /ETSI.RFC3161) holds an RFC 3161 TimeStampToken whose
+     * TSTInfo message imprint covers the ByteRange, not a CMS signature over those bytes.
+     */
+    public function isDocumentTimestamp(): bool
+    {
+        return $this->subFilter === 'ETSI.RFC3161';
+    }
 }
