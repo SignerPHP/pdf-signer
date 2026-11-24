@@ -33,6 +33,8 @@ final readonly class OpenSslOcspSignerCertificateRevocationChecker implements Si
 
     private const MAX_STATUS_AGE_SECONDS = 86400;
 
+    private const OCSP_NETWORK_TIMEOUT_SECONDS = 10;
+
     public function __construct(
         private X509ExtensionUrlExtractor $urlExtractor = new X509ExtensionUrlExtractor,
         private ProcessRunnerInterface $processRunner = new ShellProcessRunner,
@@ -85,7 +87,7 @@ final readonly class OpenSslOcspSignerCertificateRevocationChecker implements Si
     private function verifiedRevocation(string $url, array $files): ?string
     {
         $result = $this->processRunner->run(sprintf(
-            'openssl ocsp -issuer %s -cert %s -url %s -CAfile %s -verify_other %s -validity_period %d -status_age %d',
+            'openssl ocsp -issuer %s -cert %s -url %s -CAfile %s -verify_other %s -validity_period %d -status_age %d -timeout %d',
             escapeshellarg($files['issuer']),
             escapeshellarg($files['cert']),
             escapeshellarg($url),
@@ -93,6 +95,7 @@ final readonly class OpenSslOcspSignerCertificateRevocationChecker implements Si
             escapeshellarg($files['untrusted']),
             self::CLOCK_SKEW_SECONDS,
             self::MAX_STATUS_AGE_SECONDS,
+            self::OCSP_NETWORK_TIMEOUT_SECONDS,
         ));
         $output = $result->outputAsString();
 

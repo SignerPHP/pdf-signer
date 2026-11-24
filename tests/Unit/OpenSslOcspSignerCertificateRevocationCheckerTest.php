@@ -108,6 +108,7 @@ final class OpenSslOcspSignerCertificateRevocationCheckerTest extends TestCase
         self::assertStringContainsString('-verify_other ', $command);
         self::assertStringContainsString('-validity_period 300', $command);
         self::assertStringContainsString('-status_age 86400', $command);
+        self::assertStringContainsString('-timeout 10', $command);
     }
 
     public function test_unverified_revoked_response_is_ignored(): void
