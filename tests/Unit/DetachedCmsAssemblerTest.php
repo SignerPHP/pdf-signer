@@ -177,6 +177,61 @@ final class DetachedCmsAssemblerTest extends TestCase
         self::assertStringContainsString($expected, $prepared->signedAttributes);
     }
 
+    public static function signaturePolicyCompletionCases(): iterable
+    {
+        yield 'AD-RB assemble without timestamp' => [IcpBrasilPadesPolicy::AdRbV1_3, false];
+        yield 'AD-RT assemble without timestamp' => [IcpBrasilPadesPolicy::AdRtV1_3, true];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('signaturePolicyCompletionCases')]
+    public function test_assemble_requires_mandatory_policy_timestamp(
+        IcpBrasilPadesPolicy $policy,
+        bool $mustReject,
+    ): void {
+        $bundle = Pkcs12Fixture::load();
+        $provider = new LocalPrivateKeySignatureProvider($bundle['pkey']);
+
+        if ($mustReject) {
+            $this->expectException(SignProcessException::class);
+            $this->expectExceptionMessage('requires a signature timestamp');
+        }
+
+        $cms = (new DetachedCmsAssembler)->assemble(
+            'payload',
+            $bundle['cert'],
+            $provider,
+            profile: SignatureProfile::PadesBaselineB,
+            signaturePolicy: $policy->toIdentifier(),
+        );
+
+        if (! $mustReject) {
+            self::assertTrue(Pkcs12Fixture::cmsVerifies($cms, 'payload'));
+        }
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('signaturePolicyCompletionCases')]
+    public function test_complete_requires_mandatory_policy_timestamp(
+        IcpBrasilPadesPolicy $policy,
+        bool $mustReject,
+    ): void {
+        $bundle = Pkcs12Fixture::load();
+        $provider = new LocalPrivateKeySignatureProvider($bundle['pkey']);
+        $assembler = new DetachedCmsAssembler;
+        $prepared = $assembler->prepare('payload', $bundle['cert'], profile: SignatureProfile::PadesBaselineB, signaturePolicy: $policy->toIdentifier());
+        $signature = $provider->sign(new SigningPayload($prepared->signedAttributes, $prepared->digestAlgorithm));
+
+        if ($mustReject) {
+            $this->expectException(SignProcessException::class);
+            $this->expectExceptionMessage('requires a signature timestamp');
+        }
+
+        $cms = $assembler->complete($prepared, $signature);
+
+        if (! $mustReject) {
+            self::assertTrue(Pkcs12Fixture::cmsVerifies($cms, 'payload'));
+        }
+    }
+
     public function test_openssl_decodes_the_signature_policy_identifier(): void
     {
         $bundle = Pkcs12Fixture::load();
@@ -186,7 +241,7 @@ final class DetachedCmsAssemblerTest extends TestCase
             $bundle['cert'],
             $provider,
             profile: SignatureProfile::PadesBaselineB,
-            signaturePolicy: IcpBrasilPadesPolicy::AdRtV1_3->toIdentifier(),
+            signaturePolicy: IcpBrasilPadesPolicy::AdRbV1_3->toIdentifier(),
         );
         $filename = tempnam(sys_get_temp_dir(), 'pades-policy-');
         self::assertNotFalse($filename);
@@ -198,7 +253,7 @@ final class DetachedCmsAssemblerTest extends TestCase
             self::assertSame(0, $exitCode, implode("\n", $output));
             $decoded = implode("\n", $output);
             self::assertMatchesRegularExpression('/object:\\s*(?:id-smime-aa-ets-sigPolicyId|1\\.2\\.840\\.113549\\.1\\.9\\.16\\.2\\.15)\\b/', $decoded);
-            self::assertStringContainsString('2.16.76.1.7.1.12.1.3', $decoded);
+            self::assertStringContainsString('2.16.76.1.7.1.11.1.3', $decoded);
         } finally {
             unlink($filename);
         }

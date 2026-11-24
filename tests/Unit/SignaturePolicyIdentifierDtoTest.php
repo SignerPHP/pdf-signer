@@ -74,6 +74,26 @@ final class SignaturePolicyIdentifierDtoTest extends TestCase
         self::assertTrue((new SignaturePolicyIdentifierDto('1.2.3.4', $digest, requiresSignatureTimestamp: true))->requiresSignatureTimestamp);
     }
 
+    public static function policyOidEncodingCases(): iterable
+    {
+        yield 'ordinary first subidentifier' => ['1.2.3', '06022a03'];
+        yield 'multi-byte first subidentifier' => ['2.999.3', '0603883703'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('policyOidEncodingCases')]
+    public function test_policy_oid_uses_der_base128_encoding(string $oid, string $expectedDer): void
+    {
+        $policy = new SignaturePolicyIdentifierDto($oid, str_repeat(chr(0), 32));
+        self::assertSame($expectedDer, bin2hex(Der::objectIdentifier($policy->oid)));
+    }
+
+    public function test_policy_rejects_invalid_second_oid_arc(): void
+    {
+        $this->expectException(SignerException::class);
+        $this->expectExceptionMessage('Invalid signature policy OID');
+        new SignaturePolicyIdentifierDto('1.40.3', str_repeat(chr(0), 32));
+    }
+
     public function test_rejects_an_invalid_oid(): void
     {
         $this->expectException(SignerException::class);

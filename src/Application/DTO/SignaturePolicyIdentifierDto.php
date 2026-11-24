@@ -33,7 +33,7 @@ final readonly class SignaturePolicyIdentifierDto
         public ?string $uri = null,
         bool $requiresSignatureTimestamp = false,
     ) {
-        if (preg_match('/^[0-2](\.(0|[1-9]\d*))+$/', $oid) !== 1) {
+        if (preg_match('/^[0-2](\.(0|[1-9]\d*))+$/', $oid) !== 1 || ! self::hasValidFirstArcs($oid)) {
             throw new SignerException(sprintf('Invalid signature policy OID "%s".', $oid));
         }
 
@@ -53,6 +53,14 @@ final readonly class SignaturePolicyIdentifierDto
         if ($uri !== null && ($uri === '' || preg_match('/^[\x20-\x7E]+$/', $uri) !== 1)) {
             throw new SignerException('Signature policy URI must be a non-empty ASCII string.');
         }
+    }
+
+    private static function hasValidFirstArcs(string $oid): bool
+    {
+        $arcs = explode('.', $oid);
+
+        // ASN.1 restricts the second arc to 0..39 for the first arcs 0 and 1.
+        return (int) $arcs[0] === 2 || (int) $arcs[1] < 40;
     }
 
     public static function fromHex(

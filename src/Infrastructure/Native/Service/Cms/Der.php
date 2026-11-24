@@ -40,20 +40,25 @@ final class Der
             throw new \InvalidArgumentException('OID must have at least two arcs.');
         }
 
-        $bytes = chr(40 * $parts[0] + $parts[1]);
+        $bytes = self::base128(40 * $parts[0] + $parts[1]);
         $count = count($parts);
         for ($i = 2; $i < $count; $i++) {
-            $value = $parts[$i];
-            $encoded = chr($value & 0x7F);
-            $value >>= 7;
-            while ($value > 0) {
-                $encoded = chr(0x80 | ($value & 0x7F)).$encoded;
-                $value >>= 7;
-            }
-            $bytes .= $encoded;
+            $bytes .= self::base128($parts[$i]);
         }
 
         return self::tlv(0x06, $bytes);
+    }
+
+    private static function base128(int $value): string
+    {
+        $encoded = chr($value & 0x7F);
+        $value >>= 7;
+        while ($value > 0) {
+            $encoded = chr(0x80 | ($value & 0x7F)).$encoded;
+            $value >>= 7;
+        }
+
+        return $encoded;
     }
 
     public static function algorithmIdentifier(string|array $oid, bool $withNullParameters = true): string

@@ -45,6 +45,10 @@ final class DetachedCmsAssembler
         SignatureProfile $profile = SignatureProfile::PdfBasic,
         ?SignaturePolicyIdentifierDto $signaturePolicy = null,
     ): string {
+        if ($signaturePolicy?->requiresSignatureTimestamp) {
+            throw new SignProcessException(sprintf('Signature policy %s requires a signature timestamp; use a timestamp-aware signer.', $signaturePolicy->oid));
+        }
+
         $prepared = $this->prepare($dataToSign, $certificatePem, $algorithm, $signingTime, $certificateChainPem, $profile, $signaturePolicy);
         $signature = $signatureProvider->sign(new SigningPayload($prepared->signedAttributes, $algorithm));
 
@@ -73,6 +77,7 @@ final class DetachedCmsAssembler
             $algorithm,
             $certificate->keyType() === 'ec' ? SignatureAlgorithm::Ecdsa : SignatureAlgorithm::RsaPkcs1V15,
             $certificateChainPem,
+            $signaturePolicy,
         );
     }
 
@@ -82,6 +87,10 @@ final class DetachedCmsAssembler
      */
     public function complete(PreparedDetachedCms $prepared, SignatureValue $signature, ?string $signatureTimestampToken = null): string
     {
+        if ($prepared->signaturePolicy?->requiresSignatureTimestamp && $signatureTimestampToken === null) {
+            throw new SignProcessException(sprintf('Signature policy %s requires a signature timestamp.', $prepared->signaturePolicy->oid));
+        }
+
         if ($signature->bytes === '') {
             throw new SignProcessException('Signature provider returned an empty signature.');
         }
