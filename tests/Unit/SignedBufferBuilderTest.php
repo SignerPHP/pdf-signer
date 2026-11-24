@@ -18,11 +18,13 @@ use SignerPHP\PdfSigner\Application\DTO\SigningContextDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningOptionsDto;
 use SignerPHP\PdfSigner\Application\DTO\SigningPayload;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
+use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\LongTermValidationApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PolicyAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProfileAwarePkcs7SignerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignerCertificateRevocationCheckerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\XrefContentResolverInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignatureHandler;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\SignedBufferBuilder;
@@ -349,6 +351,99 @@ final class SignedBufferBuilderTest extends TestCase
             $this->makeContext(SignatureProfile::PadesBaselineB, null, IcpBrasilPadesPolicy::AdRbV1_3->toIdentifier()),
             $this->makeProvider(),
         );
+    }
+
+    public function test_build_refuses_lt_signing_when_the_signer_certificate_is_revoked(): void
+    {
+        $calls = new class
+        {
+            public int $checks = 0;
+
+            public int $signatures = 0;
+        };
+
+        $builder = new SignedBufferBuilder(
+            $this->xrefResolver(),
+            new class($calls) implements ProfileAwarePkcs7SignerInterface
+            {
+                public function __construct(private object $calls) {}
+
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
+                {
+                    $this->calls->signatures++;
+
+                    return 'ABCD';
+                }
+
+                public function signWithProfile(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile): string
+                {
+                    return $this->sign($signableDocument, $signatureProvider, $certificatePem);
+                }
+            },
+            revocationChecker: new class($calls) implements SignerCertificateRevocationCheckerInterface
+            {
+                public function __construct(private object $calls) {}
+
+                public function assertNotRevoked(string $certificatePem, array $chainPem): void
+                {
+                    $this->calls->checks++;
+
+                    throw new SignProcessException('The signing certificate "Signer" is revoked.');
+                }
+            },
+        );
+
+        try {
+            $builder->build(
+                $this->makePdfDocumentForSigning(),
+                $this->makeSignatureHandlerWithCertificate(),
+                $this->makeContext(SignatureProfile::PadesBaselineLT, new TimestampOptionsDto('https://tsa.example')),
+                $this->makeProvider(),
+            );
+            self::fail('LT signing with a revoked certificate must fail.');
+        } catch (SignProcessException $exception) {
+            self::assertStringContainsString('is revoked', $exception->getMessage());
+        }
+
+        self::assertSame(1, $calls->checks);
+        self::assertSame(0, $calls->signatures, 'nothing must be signed once the certificate is known to be revoked');
+    }
+
+    public function test_build_does_not_query_revocation_for_baseline_b(): void
+    {
+        $calls = new class
+        {
+            public int $checks = 0;
+        };
+
+        $builder = new SignedBufferBuilder(
+            $this->xrefResolver(),
+            new class implements ProfileAwarePkcs7SignerInterface
+            {
+                public function sign(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem): string
+                {
+                    return 'ABCD';
+                }
+
+                public function signWithProfile(Buffer $signableDocument, SignatureProviderInterface $signatureProvider, string $certificatePem, SignatureProfile $profile): string
+                {
+                    return 'ABCD';
+                }
+            },
+            revocationChecker: new class($calls) implements SignerCertificateRevocationCheckerInterface
+            {
+                public function __construct(private object $calls) {}
+
+                public function assertNotRevoked(string $certificatePem, array $chainPem): void
+                {
+                    $this->calls->checks++;
+                }
+            },
+        );
+
+        $builder->build($this->makePdfDocumentForSigning(), $this->makeSignatureHandlerWithCertificate(), $this->makeContext(SignatureProfile::PadesBaselineB, null), $this->makeProvider());
+
+        self::assertSame(0, $calls->checks);
     }
 
     private function xrefResolver(): XrefContentResolverInterface

@@ -18,6 +18,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\Pkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PolicyAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProfileAwarePkcs7SignerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignedBufferBuilderInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignerCertificateRevocationCheckerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\XrefContentResolverInterface;
 
 final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
@@ -27,6 +28,7 @@ final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
         private Pkcs7SignerInterface $pkcs7Signer,
         private DocumentTimestampApplierInterface $documentTimestampApplier = new DocumentTimestampApplier,
         private LongTermValidationApplierInterface $longTermValidationApplier = new DocumentLongTermValidationApplier,
+        private SignerCertificateRevocationCheckerInterface $revocationChecker = new OpenSslOcspSignerCertificateRevocationChecker,
     ) {}
 
     public function build(
@@ -37,6 +39,11 @@ final readonly class SignedBufferBuilder implements SignedBufferBuilderInterface
     ): Buffer {
         if (! $signatureHandler->hasCertificate()) {
             return $pdfDocument->getBuffer();
+        }
+
+        // LT/LTA embed revocation data for the signer; never produce them for a revoked certificate.
+        if (in_array($context->options->signatureProfile, [SignatureProfile::PadesBaselineLT, SignatureProfile::PadesBaselineLTA], true)) {
+            $this->revocationChecker->assertNotRevoked($context->certificate->certificatePem, $context->certificate->chainPem);
         }
 
         $pdfDocument->updateModifyDate();
