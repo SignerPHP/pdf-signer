@@ -82,9 +82,10 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
             }
 
             $signer = @openssl_x509_parse((string) file_get_contents($signerFile));
-            $extendedKeyUsage = is_array($signer) ? (string) ($signer['extensions']['extendedKeyUsage'] ?? '') : '';
-            if (! str_contains($extendedKeyUsage, 'Time Stamping')) {
-                return new SignatureCryptoVerification(false, 'Timestamp signer certificate lacks the timeStamping extended key usage.');
+            // OpenSSL's timestampsign purpose requires the critical, exclusive timeStamping
+            // EKU specified by RFC 3161 and checks the key usage, independently of chain trust.
+            if (! is_array($signer) || ($signer['purposes'][X509_PURPOSE_TIMESTAMP_SIGN][0] ?? false) !== true) {
+                return new SignatureCryptoVerification(false, 'Timestamp signer certificate does not satisfy the RFC 3161 timeStamping purpose.');
             }
 
             return new SignatureCryptoVerification(true, signingTime: $genTime);

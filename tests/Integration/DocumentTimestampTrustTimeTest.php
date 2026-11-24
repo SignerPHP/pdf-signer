@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SignerPHP\PdfSigner\Tests\Integration;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\DTO\PdfContentDto;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValidationEntryDto;
@@ -41,7 +42,11 @@ final class DocumentTimestampTrustTimeTest extends TestCase
             '[any]', 'commonName = supplied',
             '[v3_ca]', 'basicConstraints = critical, CA:TRUE', 'keyUsage = critical, keyCertSign, cRLSign',
             '[v3_tsa]', 'basicConstraints = critical, CA:FALSE', 'keyUsage = critical, digitalSignature',
-            'extendedKeyUsage = critical, timeStamping', '',
+            'extendedKeyUsage = critical, timeStamping',
+            '[v3_tsa_noncritical]', 'basicConstraints = critical, CA:FALSE', 'keyUsage = critical, digitalSignature',
+            'extendedKeyUsage = timeStamping',
+            '[v3_tsa_multiple]', 'basicConstraints = critical, CA:FALSE', 'keyUsage = critical, digitalSignature',
+            'extendedKeyUsage = critical, timeStamping, codeSigning', '',
         ]));
 
         $d = escapeshellarg(self::$dir);
@@ -55,6 +60,8 @@ final class DocumentTimestampTrustTimeTest extends TestCase
         self::issueTsa('tsa-2020', '20200101000000Z', '20210101000000Z');
         // Not valid before 2040.
         self::issueTsa('tsa-2040', '20400101000000Z', '20410101000000Z');
+        self::issueTsa('tsa-noncritical', '20200101000000Z', '20210101000000Z', 'v3_tsa_noncritical');
+        self::issueTsa('tsa-multiple', '20200101000000Z', '20210101000000Z', 'v3_tsa_multiple');
     }
 
     public static function tearDownAfterClass(): void
@@ -109,6 +116,52 @@ final class DocumentTimestampTrustTimeTest extends TestCase
         self::assertFalse($entry->cryptoValid);
         self::assertFalse($entry->valid);
         self::assertSame('Timestamp message imprint does not match the signed ByteRange.', $entry->reason);
+    }
+
+    #[DataProvider('invalidTimestampCertificatePurposes')]
+    public function test_rejects_a_tsa_certificate_without_a_critical_exclusive_timestamping_eku(string $tsa): void
+    {
+        $entry = $this->validate($this->token($tsa, self::CONTENT, '20200615120000Z'));
+
+        self::assertFalse($entry->cryptoValid);
+        self::assertFalse($entry->valid);
+    }
+
+    public static function invalidTimestampCertificatePurposes(): array
+    {
+        return [
+            'noncritical EKU' => ['tsa-noncritical'],
+            'multiple EKU purposes' => ['tsa-multiple'],
+        ];
+    }
+
+    public function test_accepts_a_token_whose_der_ends_in_a_zero_byte(): void
+    {
+        $token = $this->token('tsa-2020', self::CONTENT, '20200615120000Z');
+
+        // Add a CMS unsigned attribute ending in an actual zero byte, not PDF padding.
+        // This leaves the signed TSTInfo and its cryptographic signature unchanged.
+        [, $contentInfo] = Der::readTlv($token);
+        [, , $afterOid] = Der::readTlv($contentInfo);
+        [, $explicit] = Der::readTlv($contentInfo, $afterOid);
+        [, $signedData] = Der::readTlv($explicit);
+        $offset = 0;
+        do {
+            $signerInfosOffset = $offset;
+            [$tag, $value, $offset] = Der::readTlv($signedData, $offset);
+        } while ($offset < strlen($signedData));
+        self::assertSame(0x31, $tag);
+        [, $signerInfo] = Der::readTlv($value);
+        $unsignedAttribute = Der::sequence(Der::objectIdentifier('1.2.3.4.5').Der::set(Der::octetString("\0")));
+        $signerInfos = Der::set(Der::sequence($signerInfo.Der::contextSpecific(1, $unsignedAttribute)));
+        $token = Der::sequence(substr($contentInfo, 0, $afterOid)
+            .Der::contextSpecific(0, Der::sequence(substr($signedData, 0, $signerInfosOffset).$signerInfos)));
+
+        self::assertStringEndsWith("\0", $token);
+        $entry = $this->validate($token);
+        self::assertTrue($entry->cryptoValid, (string) $entry->reason);
+        self::assertTrue($entry->trustValid, (string) $entry->reason);
+        self::assertTrue($entry->valid);
     }
 
     private function validate(string $tokenDer): SignatureValidationEntryDto
@@ -167,13 +220,13 @@ final class DocumentTimestampTrustTimeTest extends TestCase
         return (string) file_get_contents(self::$dir."/$name.token");
     }
 
-    private static function issueTsa(string $name, string $notBefore, string $notAfter): void
+    private static function issueTsa(string $name, string $notBefore, string $notAfter, string $extensions = 'v3_tsa'): void
     {
         $d = escapeshellarg(self::$dir);
         self::shell(<<<SH
             cd $d
             openssl req -new -newkey rsa:2048 -nodes -keyout $name.key -out $name.csr -subj /CN=$name -config ca.cnf
-            openssl ca -batch -config ca.cnf -cert ca.crt -keyfile ca.key -in $name.csr -out $name.crt -extensions v3_tsa -startdate $notBefore -enddate $notAfter -notext
+            openssl ca -batch -config ca.cnf -cert ca.crt -keyfile ca.key -in $name.csr -out $name.crt -extensions $extensions -startdate $notBefore -enddate $notAfter -notext
             SH);
     }
 

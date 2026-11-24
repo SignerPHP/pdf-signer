@@ -122,7 +122,7 @@ final class OpenSslTimestampTokenVerifierTest extends TestCase
         $result = $this->verifyWithOpenSslOutput((string) file_get_contents(self::$dir.'/sha256.tstinfo'), 'ca.crt');
 
         self::assertFalse($result->valid);
-        self::assertSame('Timestamp signer certificate lacks the timeStamping extended key usage.', $result->message);
+        self::assertSame('Timestamp signer certificate does not satisfy the RFC 3161 timeStamping purpose.', $result->message);
     }
 
     public function test_rejects_a_malformed_tst_info(): void
