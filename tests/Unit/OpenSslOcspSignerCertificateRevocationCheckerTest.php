@@ -147,6 +147,59 @@ final class OpenSslOcspSignerCertificateRevocationCheckerTest extends TestCase
         self::assertStringContainsString("-url 'http://ocsp-b.example.test/'", $runner->commands[1]);
     }
 
+    public function test_uses_the_certificate_that_actually_issued_the_signer_when_ca_names_collide(): void
+    {
+        $config = tempnam(sys_get_temp_dir(), 'ocsp-test-issuer-cnf');
+        file_put_contents($config, "[req]\ndistinguished_name = dn\n[dn]\n");
+        try {
+            $options = [
+                'config' => $config,
+                'digest_alg' => 'sha256',
+                'private_key_bits' => 2048,
+                'private_key_type' => OPENSSL_KEYTYPE_RSA,
+            ];
+            $wrongKey = openssl_pkey_new($options);
+            $wrongCsr = openssl_csr_new(['commonName' => 'Revocation Test CA'], $wrongKey, $options);
+            $wrongCa = openssl_csr_sign($wrongCsr, null, $wrongKey, 1, $options);
+            openssl_x509_export($wrongCa, $wrongPem);
+        } finally {
+            unlink($config);
+        }
+        self::assertSame(openssl_x509_parse(self::$pki['ca'])['subject'], openssl_x509_parse($wrongPem)['subject']);
+
+        // A renamed or reissued CA may share the issuer DN but not the key.
+        self::assertSame(
+            0,
+            openssl_x509_verify(self::$pki['leaf'], $wrongPem),
+            'The same-name CA is deliberately not the certificate issuer.',
+        );
+
+        $runner = new class(self::$pki['leaf'], self::REVOKED) implements ProcessRunnerInterface
+        {
+            /** @param list<string> $revokedOutput */
+            public function __construct(
+                private string $leafPem,
+                private array $revokedOutput,
+            ) {}
+
+            public function run(string $command): ProcessResult
+            {
+                preg_match("/-issuer '([^']+)'/", $command, $matches);
+                $issuerPem = file_get_contents($matches[1]);
+
+                if (openssl_x509_verify($this->leafPem, $issuerPem) !== 1) {
+                    return new ProcessResult(1, ['wrong issuer']);
+                }
+
+                return new ProcessResult(0, $this->revokedOutput);
+            }
+        };
+
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('is revoked');
+        $this->checker($runner)->assertNotRevoked(self::$pki['leaf'], [$wrongPem, self::$pki['ca']]);
+    }
+
     public function test_good_from_every_responder_passes(): void
     {
         $runner = $this->runner([self::GOOD, self::GOOD]);

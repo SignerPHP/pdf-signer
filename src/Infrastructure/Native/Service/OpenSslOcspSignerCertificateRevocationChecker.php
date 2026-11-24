@@ -48,7 +48,7 @@ final readonly class OpenSslOcspSignerCertificateRevocationChecker implements Si
         }
 
         $urls = $this->urlExtractor->ocspUrls($certificate);
-        $issuerPem = $this->findIssuer($certificate, $chainPem);
+        $issuerPem = $this->findIssuer($certificatePem, $certificate, $chainPem);
         $trustAnchors = $this->selfSignedRoots($chainPem);
         if ($urls === [] || $issuerPem === null || $trustAnchors === []) {
             return;
@@ -117,11 +117,12 @@ final readonly class OpenSslOcspSignerCertificateRevocationChecker implements Si
      * @param  array<string, mixed>  $certificate
      * @param  list<string>  $chainPem
      */
-    private function findIssuer(array $certificate, array $chainPem): ?string
+    private function findIssuer(string $certificatePem, array $certificate, array $chainPem): ?string
     {
         foreach ($chainPem as $candidatePem) {
             $candidate = @openssl_x509_parse($candidatePem);
-            if (is_array($candidate) && ($candidate['subject'] ?? null) === ($certificate['issuer'] ?? false)) {
+            if (is_array($candidate) && ($candidate['subject'] ?? null) === ($certificate['issuer'] ?? false)
+                && openssl_x509_verify($certificatePem, $candidatePem) === 1) {
                 return $candidatePem;
             }
         }
