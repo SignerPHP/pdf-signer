@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\DTO\CertificationLevel;
 use SignerPHP\PdfSigner\Application\DTO\ExternalSigningPayload;
@@ -155,6 +156,110 @@ final class ExternalSigningTest extends TestCase
             ->toThrow(SignerException::class, 'valid non-empty base64')
             ->and(fn () => $builder->withCertificationLevel(99))
             ->toThrow(SignerException::class, 'one of');
+    }
+
+    public function test_prepares_ecdsa_signing_payload_for_an_ec_certificate(): void
+    {
+        $key = openssl_pkey_new([
+            'private_key_type' => OPENSSL_KEYTYPE_EC,
+            'curve_name' => 'prime256v1',
+        ]);
+        self::assertNotFalse($key);
+        $csr = openssl_csr_new(['CN' => 'External EC signing'], $key, ['digest_alg' => 'sha256']);
+        self::assertNotFalse($csr);
+        $certificate = openssl_csr_sign($csr, null, $key, 1);
+        self::assertNotFalse($certificate);
+        self::assertTrue(openssl_x509_export($certificate, $pem));
+
+        $prepared = Signer::externalSigner()
+            ->withPdfContent(PdfFixtureFactory::minimalPdf())
+            ->withCertificate($pem)
+            ->withoutDefaultAppearance()
+            ->prepare();
+
+        self::assertSame(SignatureAlgorithm::Ecdsa, $prepared->payload->signatureAlgorithm);
+        self::assertSame(SignatureEncoding::EcdsaDer, $prepared->payload->signatureEncoding);
+    }
+
+    public function test_rejects_invalid_intermediate_certificate(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $this->expectException(SignerException::class);
+        $this->expectExceptionMessage('valid PEM');
+
+        Signer::externalSigner()->withCertificate($bundle['cert'], ['invalid certificate']);
+    }
+
+    #[DataProvider('invalidPreparedCertificateChains')]
+    public function test_rejects_corrupted_certificate_chain_in_prepared_state(mixed $chain): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $prepared = Signer::externalSigner()
+            ->withPdfContent(PdfFixtureFactory::minimalPdf())
+            ->withCertificate($bundle['cert'])
+            ->withoutDefaultAppearance()
+            ->prepare();
+
+        $payload = json_decode($prepared->state, true, flags: JSON_THROW_ON_ERROR);
+        unset($payload['checksum']);
+        $payload['certificateChain'] = $chain;
+        $payload['checksum'] = hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
+
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('incomplete or corrupted');
+
+        Signer::externalSigner()->complete(json_encode($payload, JSON_THROW_ON_ERROR), 'signature');
+    }
+
+    public static function invalidPreparedCertificateChains(): array
+    {
+        return [
+            'not an array' => ['not an array'],
+            'non-string entry' => [[42]],
+            'invalid base64' => [['***']],
+            'empty certificate' => [['']],
+        ];
+    }
+
+    public function test_rejects_prepared_pdf_with_insufficient_signature_space(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $prepared = Signer::externalSigner()
+            ->withPdfContent(PdfFixtureFactory::minimalPdf())
+            ->withCertificate($bundle['cert'])
+            ->withoutDefaultAppearance()
+            ->prepare();
+
+        $payload = json_decode($prepared->state, true, flags: JSON_THROW_ON_ERROR);
+        unset($payload['checksum']);
+        $pdf = base64_decode($payload['unsignedPdf'], true);
+        self::assertIsString($pdf);
+        $payload['unsignedPdf'] = base64_encode((string) preg_replace(
+            '/\/ByteRange\s*\[\s*\d+\s+\d+\s+\d+\s+\d+\s*\]/',
+            '/ByteRange [0 10 12 10]',
+            $pdf,
+        ));
+        $payload['checksum'] = hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
+
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('invalid signature placeholder');
+
+        Signer::externalSigner()->complete(json_encode($payload, JSON_THROW_ON_ERROR), 'signature');
+    }
+
+    public function test_rejects_signature_larger_than_reserved_pdf_space(): void
+    {
+        $bundle = Pkcs12Fixture::load();
+        $prepared = Signer::externalSigner()
+            ->withPdfContent(PdfFixtureFactory::minimalPdf())
+            ->withCertificate($bundle['cert'])
+            ->withoutDefaultAppearance()
+            ->prepare();
+
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('exceeds the reserved PDF signature size');
+
+        Signer::externalSigner()->complete($prepared->state, str_repeat('x', \SignerPHP\PdfCore\SignatureObject::SIGNATURE_MAX_LENGTH));
     }
 
     private static function signRsaDigest(string $digest, string $privateKeyPem, string $algorithm): string

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SignerPHP\PdfSigner\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValidationOptionsDto;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
@@ -100,13 +101,17 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
         }
     }
 
-    public function test_verify_returns_invalid_when_signer_certificate_cannot_be_identified(): void
+    #[DataProvider('invalidCmsPayloads')]
+    public function test_verify_returns_invalid_when_signer_certificate_cannot_be_identified(string $signatureHex): void
     {
-        $collector = new class implements SignatureCertificateCollectorInterface
+        [, $signerDer] = $this->signingFixture();
+        $collector = new class($signerDer) implements SignatureCertificateCollectorInterface
         {
+            public function __construct(private readonly string $signerDer) {}
+
             public function collectDerCertificates(string $signatureHex): array
             {
-                return [''];
+                return [$this->signerDer];
             }
         };
 
@@ -116,7 +121,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
 
         try {
             $verifier = new OpenSslSignatureTrustVerifier($collector);
-            $result = $verifier->verify('ABCD', new SignatureValidationOptionsDto(
+            $result = $verifier->verify($signatureHex, new SignatureValidationOptionsDto(
                 checkTrustChain: true,
                 trustStorePath: $trustStore,
             ));
@@ -126,6 +131,16 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
         } finally {
             @unlink($trustStore);
         }
+    }
+
+    public static function invalidCmsPayloads(): array
+    {
+        return [
+            'empty' => [''],
+            'odd length' => ['ABC'],
+            'not hexadecimal' => ['NOPE'],
+            'malformed DER' => ['ABCD'],
+        ];
     }
 
     public function test_verify_returns_default_message_when_openssl_fails_without_output(): void
@@ -220,7 +235,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
 
             public function collectDerCertificates(string $signatureHex): array
             {
-                return [$this->signerDer];
+                return [$this->signerDer, ''];
             }
         };
 
@@ -248,6 +263,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
             $verifier->verify($signatureHex, $options);
 
             self::assertStringContainsString(' -attime 1592222400 ', $runner->commands[0]);
+            self::assertStringNotContainsString(' -untrusted ', $runner->commands[0], 'empty certificates must not be sent to OpenSSL');
             self::assertStringNotContainsString('-attime', $runner->commands[1], 'regular signatures keep the current time');
         } finally {
             @unlink($trustStore);

@@ -145,6 +145,39 @@ final class OpenSslRevocationEvidenceCollectorTest extends TestCase
         self::assertSame([], $result[1]['ocsp']);
     }
 
+    public function test_collect_preserves_crl_evidence_when_ocsp_certificate_file_cannot_be_created(): void
+    {
+        if (! $this->hasOpenSslCli()) {
+            self::markTestSkipped('OpenSSL CLI is required.');
+        }
+
+        $httpClient = new class implements HttpClientInterface
+        {
+            public function request(
+                string $method,
+                string $url,
+                array $headers = [],
+                string $body = '',
+                int $timeoutSeconds = 10,
+                bool $followRedirects = false
+            ): HttpResponse {
+                return new HttpResponse(200, 'crl-bytes');
+            }
+        };
+        $runner = $this->createMock(ProcessRunnerInterface::class);
+        $runner->expects(self::never())->method('run');
+        $collector = new OpenSslRevocationEvidenceCollector(httpClient: $httpClient, processRunner: $runner);
+        $certA = $this->createCertificateDerWithRevocationExtensions('A');
+        $certB = $this->createCertificateDerWithRevocationExtensions('B');
+
+        NativeFunctionOverrideState::$failTempnamPrefixes = ['ocsp-cert'];
+        self::assertSame([
+            ['ocsp' => [], 'crl' => ['crl-bytes']],
+            ['ocsp' => [], 'crl' => []],
+            ['ocsp' => [], 'crl' => ['crl-bytes']],
+        ], $collector->collect([$certA, '', $certB]));
+    }
+
     public function test_collect_ocsp_internal_returns_empty_when_urls_or_issuers_are_missing(): void
     {
         $collector = new OpenSslRevocationEvidenceCollector;
