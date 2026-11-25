@@ -39,12 +39,12 @@ final class PdfEncryptedDocumentWriter
 
         foreach ($objects as $object) {
             $offsets[$object->objectNumber] = [strlen($output), $object->generation];
-            $output .= $this->writeObject($object, $handler, $encryptMetadata);
+            $output .= PdfObjectSerializer::writeObject($object, $handler, $encryptMetadata);
         }
 
         $encryptNumber = ($objects === [] ? 0 : max(array_keys($objects))) + 1;
         $offsets[$encryptNumber] = [strlen($output), 0];
-        $output .= $encryptNumber." 0 obj\n".self::serialize($handler->encryptionDictionary(), null)."\nendobj\n";
+        $output .= $encryptNumber." 0 obj\n".PdfObjectSerializer::serialize($handler->encryptionDictionary(), null)."\nendobj\n";
 
         $xrefOffset = strlen($output);
         $output .= 'xref'."\n".'0 '.($encryptNumber + 1)."\n".'0000000000 65535 f'."\r\n";
@@ -64,72 +64,7 @@ final class PdfEncryptedDocumentWriter
         $trailer->set('ID', new PdfArrayNode([new PdfStringNode($documentId[0]), new PdfStringNode($documentId[1])]));
         $trailer->set('Encrypt', new PdfRawNode($encryptNumber.' 0 R'));
 
-        return $output.'trailer'."\n".self::serialize($trailer, null)."\nstartxref\n".$xrefOffset."\n%%EOF\n";
-    }
-
-    private function writeObject(PdfIndirectObject $object, StandardSecurityHandlerInterface $handler, bool $encryptMetadata): string
-    {
-        $encryptor = static fn (string $bytes): string => $handler->encrypt($bytes, $object->objectNumber, $object->generation);
-        $header = $object->objectNumber.' '.$object->generation." obj\n";
-        $value = $object->value;
-
-        if ($object->stream === null || ! $value instanceof PdfDictionaryNode) {
-            return $header.self::serializeObjectValue($value, $encryptor)."\nendobj\n";
-        }
-
-        $isClearMetadata = ! $encryptMetadata && $value->rawToken('Type') === '/Metadata';
-        $stream = $isClearMetadata ? $object->stream : $encryptor($object->stream);
-        $dictionary = (clone $value)->set('Length', new PdfRawNode((string) strlen($stream)));
-
-        return $header.self::serializeObjectValue($dictionary, $encryptor)."\nstream\n".$stream."\nendstream\nendobj\n";
-    }
-
-    /**
-     * @param  callable(string): string  $encryptor
-     */
-    private static function serializeObjectValue(PdfNode $value, callable $encryptor): string
-    {
-        if (! $value instanceof PdfDictionaryNode || ! self::isSignatureDictionary($value)) {
-            return self::serialize($value, $encryptor);
-        }
-
-        // §7.6.2: the /Contents string of a signature dictionary is not encrypted.
-        $parts = [];
-        foreach ($value->entries() as [$key, $entry]) {
-            $parts[] = '/'.$key.' '.self::serialize($entry, $key === 'Contents' ? null : $encryptor);
-        }
-
-        return '<<'.implode(' ', $parts).'>>';
-    }
-
-    private static function isSignatureDictionary(PdfDictionaryNode $dictionary): bool
-    {
-        return in_array($dictionary->rawToken('Type'), ['/Sig', '/DocTimeStamp'], true) || $dictionary->has('ByteRange');
-    }
-
-    /**
-     * @param  (callable(string): string)|null  $encryptor
-     */
-    private static function serialize(PdfNode $node, ?callable $encryptor): string
-    {
-        if ($node instanceof PdfStringNode) {
-            return '<'.bin2hex($encryptor === null ? $node->bytes : $encryptor($node->bytes)).'>';
-        }
-
-        if ($node instanceof PdfArrayNode) {
-            return '['.implode(' ', array_map(static fn (PdfNode $item): string => self::serialize($item, $encryptor), $node->items)).']';
-        }
-
-        if ($node instanceof PdfDictionaryNode) {
-            $parts = [];
-            foreach ($node->entries() as [$key, $value]) {
-                $parts[] = '/'.$key.' '.self::serialize($value, $encryptor);
-            }
-
-            return '<<'.implode(' ', $parts).'>>';
-        }
-
-        return $node instanceof PdfRawNode ? $node->token : '';
+        return $output.'trailer'."\n".PdfObjectSerializer::serialize($trailer, null)."\nstartxref\n".$xrefOffset."\n%%EOF\n";
     }
 
     private static function withAdobeExtension(PdfIndirectObject $catalog, int $level): PdfIndirectObject

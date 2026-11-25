@@ -40,6 +40,8 @@ final class SignerBuilder
 
     private ?ProtectionOptionsDto $protection = null;
 
+    private ?string $pdfPassword = null;
+
     private bool $useDefaultAppearance = true;
 
     private bool $useDefaultTimestamp = false;
@@ -133,6 +135,17 @@ final class SignerBuilder
     public function withProtection(ProtectionOptionsDto $protection): self
     {
         $this->protection = $protection;
+
+        return $this;
+    }
+
+    /**
+     * Password that opens an already encrypted input PDF (user or owner password). Not needed when the PDF
+     * has no user password, and set automatically by protectThenSign().
+     */
+    public function withPdfPassword(#[\SensitiveParameter] string $password): self
+    {
+        $this->pdfPassword = $password;
 
         return $this;
     }
@@ -274,6 +287,8 @@ final class SignerBuilder
                 $this->signatureProfile,
                 $this->certificationLevel,
                 $this->signaturePolicy,
+                // The protection just applied is opened with its user password; otherwise the caller's password.
+                $this->protection !== null ? $this->protection->userPassword : $this->pdfPassword,
             ),
         );
 
