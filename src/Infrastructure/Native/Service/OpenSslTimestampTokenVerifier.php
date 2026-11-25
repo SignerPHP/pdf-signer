@@ -24,6 +24,12 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
 {
     private const OID_TST_INFO = '1.2.840.113549.1.9.16.1.4';
 
+    /**
+     * X509_PURPOSE_TIMESTAMP_SIGN from OpenSSL's x509v3.h. PHP only exposes the constant since 8.4,
+     * and this library supports PHP 8.2.
+     */
+    private const PURPOSE_TIMESTAMP_SIGN = 9;
+
     private const DIGESTS = [
         '1.3.14.3.2.26' => 'sha1',
         '2.16.840.1.101.3.4.2.4' => 'sha224',
@@ -84,7 +90,7 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
             $signer = @openssl_x509_parse((string) file_get_contents($signerFile));
             // OpenSSL's timestampsign purpose requires the critical, exclusive timeStamping
             // EKU specified by RFC 3161 and checks the key usage, independently of chain trust.
-            if (! is_array($signer) || ($signer['purposes'][X509_PURPOSE_TIMESTAMP_SIGN][0] ?? false) !== true) {
+            if (! is_array($signer) || ($signer['purposes'][self::PURPOSE_TIMESTAMP_SIGN][0] ?? false) !== true) {
                 return new SignatureCryptoVerification(false, 'Timestamp signer certificate does not satisfy the RFC 3161 timeStamping purpose.');
             }
 
