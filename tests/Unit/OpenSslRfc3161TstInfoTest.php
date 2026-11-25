@@ -7,14 +7,13 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslRfc3161TimestampTokenValidator;
-use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
+use SignerPHP\PdfSigner\Tests\Support\CmsTestFactory;
 
 /**
- * Isolates TSTInfo parsing from the actual CMS signature verification.
- * OpenSslRfc3161TimestampTokenValidatorTest exercises the real OpenSSL process.
+ * Isolates TSTInfo parsing: each crafted TSTInfo is wrapped in a validly signed CMS.
+ * OpenSslRfc3161TimestampTokenValidatorTest uses tokens issued by a real TSA.
  */
 final class OpenSslRfc3161TstInfoTest extends TestCase
 {
@@ -41,28 +40,15 @@ final class OpenSslRfc3161TstInfoTest extends TestCase
     {
         $signature = 'signature-bytes';
         $tstInfo = self::tstInfo($scenario, $signature);
-        $runner = new class($tstInfo) implements ProcessRunnerInterface
-        {
-            public function __construct(private readonly string $tstInfo) {}
-
-            public function run(string $command): ProcessResult
-            {
-                if (! preg_match("/ -out '([^']+)'$/", $command, $matches)) {
-                    return new ProcessResult(1, ['Missing test output path']);
-                }
-
-                file_put_contents($matches[1], $this->tstInfo);
-
-                return new ProcessResult(0);
-            }
-        };
+        // A real signature over the crafted TSTInfo, so only the TSTInfo checks can fail.
+        $token = CmsTestFactory::sign($tstInfo, attached: true);
 
         if (! $valid) {
             $this->expectException(SignProcessException::class);
             $this->expectExceptionMessage('message imprint mismatch or invalid TSTInfo');
         }
 
-        (new OpenSslRfc3161TimestampTokenValidator($runner))->assertValid('cms-token', $signature);
+        (new OpenSslRfc3161TimestampTokenValidator)->assertValid($token, $signature);
 
         if ($valid) {
             self::assertTrue(true);

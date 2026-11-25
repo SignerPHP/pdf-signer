@@ -7,8 +7,9 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslRfc3161TimestampTokenValidator;
+use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
 
 final class OpenSslRfc3161TimestampTokenValidatorTest extends TestCase
 {
@@ -44,18 +45,30 @@ final class OpenSslRfc3161TimestampTokenValidatorTest extends TestCase
         }
     }
 
-    public function test_reports_temporary_file_allocation_failure(): void
+    public function test_rejects_a_token_whose_signature_was_modified(): void
     {
-        NativeFunctionOverrideState::$forceTempnamFailure = true;
+        $token = $this->generateToken('signature-bytes');
+        $last = strlen($token) - 1;
+        $token[$last] = chr(ord($token[$last]) ^ 0x01);
 
-        try {
-            $this->expectException(SignProcessException::class);
-            $this->expectExceptionMessage('Could not create temporary files for signature timestamp verification.');
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('CMS signature verification failed');
 
-            (new OpenSslRfc3161TimestampTokenValidator)->assertValid('token', 'signature');
-        } finally {
-            NativeFunctionOverrideState::$forceTempnamFailure = false;
-        }
+        (new OpenSslRfc3161TimestampTokenValidator)->assertValid($token, 'signature-bytes');
+    }
+
+    public function test_a_process_runner_is_still_accepted_and_never_used(): void
+    {
+        $runner = new class implements ProcessRunnerInterface
+        {
+            public function run(string $command): ProcessResult
+            {
+                throw new \LogicException('No external process may run.');
+            }
+        };
+
+        (new OpenSslRfc3161TimestampTokenValidator($runner))->assertValid($this->generateToken('signature-bytes'), 'signature-bytes');
+        $this->addToAssertionCount(1);
     }
 
     private function generateToken(string $signature): string

@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
-use SignerPHP\PdfSigner\Domain\Exception\SignatureValidationException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCryptoVerifierInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignatureVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignedData;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignatureCryptoVerification;
 
@@ -24,6 +25,12 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
 {
     private const OID_TST_INFO = '1.2.840.113549.1.9.16.1.4';
 
+    /**
+     * X509_PURPOSE_TIMESTAMP_SIGN from OpenSSL's x509v3.h. PHP only exposes the constant since 8.4,
+     * and this library supports PHP 8.2.
+     */
+    private const PURPOSE_TIMESTAMP_SIGN = 9;
+
     private const DIGESTS = [
         '1.3.14.3.2.26' => 'sha1',
         '2.16.840.1.101.3.4.2.4' => 'sha224',
@@ -32,8 +39,14 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
         '2.16.840.1.101.3.4.2.3' => 'sha512',
     ];
 
+    /**
+     * @param  ProcessRunnerInterface|null  $processRunner  unused since verification became native; kept for constructor compatibility
+     *
+     * @psalm-suppress UnusedParam
+     */
     public function __construct(
-        private readonly ProcessRunnerInterface $processRunner = new ShellProcessRunner,
+        ?ProcessRunnerInterface $processRunner = null,
+        private readonly CmsSignatureVerifier $cmsVerifier = new CmsSignatureVerifier,
     ) {}
 
     public function verify(string $signedContent, string $signatureHex): SignatureCryptoVerification
@@ -44,73 +57,39 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
         }
 
         try {
-            // /Contents is zero-padded; the token ends where its outer DER length says.
-            [, , $end] = Der::readTlvStrict($contents);
-            $token = substr($contents, 0, $end);
-            if ($this->encapsulatedContentType($token) !== Der::objectIdentifier(self::OID_TST_INFO)) {
-                return new SignatureCryptoVerification(false, 'Document timestamp does not encapsulate an RFC 3161 TSTInfo.');
-            }
-        } catch (\Throwable) {
+            // /Contents is zero-padded; the token ends where its outer length says.
+            $signedData = CmsSignedData::fromDer($contents);
+        } catch (\UnexpectedValueException) {
             return new SignatureCryptoVerification(false, 'Document timestamp is not a valid CMS SignedData structure.');
         }
-
-        $tokenFile = $this->createTempFile('pdf-ts-token');
-        $tstInfoFile = $this->createTempFile('pdf-ts-tstinfo');
-        $signerFile = $this->createTempFile('pdf-ts-signer');
-        file_put_contents($tokenFile, $token);
-
-        try {
-            $result = $this->processRunner->run(sprintf(
-                'openssl cms -verify -binary -inform DER -in %s -noverify -out %s -signer %s',
-                escapeshellarg($tokenFile),
-                escapeshellarg($tstInfoFile),
-                escapeshellarg($signerFile),
-            ));
-            if (! $result->succeeded()) {
-                return new SignatureCryptoVerification(false, 'Timestamp token signature is invalid: '.$result->outputAsString());
-            }
-
-            $tstInfo = (string) file_get_contents($tstInfoFile);
-            $imprintError = $this->messageImprintError($tstInfo, $signedContent);
-            if ($imprintError !== null) {
-                return new SignatureCryptoVerification(false, $imprintError);
-            }
-
-            $genTime = $this->genTime($tstInfo);
-            if ($genTime === null) {
-                return new SignatureCryptoVerification(false, 'Timestamp token has a missing or invalid genTime.');
-            }
-
-            $signer = @openssl_x509_parse((string) file_get_contents($signerFile));
-            // OpenSSL's timestampsign purpose requires the critical, exclusive timeStamping
-            // EKU specified by RFC 3161 and checks the key usage, independently of chain trust.
-            if (! is_array($signer) || ($signer['purposes'][X509_PURPOSE_TIMESTAMP_SIGN][0] ?? false) !== true) {
-                return new SignatureCryptoVerification(false, 'Timestamp signer certificate does not satisfy the RFC 3161 timeStamping purpose.');
-            }
-
-            return new SignatureCryptoVerification(true, signingTime: $genTime);
-        } finally {
-            @unlink($tokenFile);
-            @unlink($tstInfoFile);
-            @unlink($signerFile);
+        if ($signedData->encapsulatedContentType !== self::OID_TST_INFO) {
+            return new SignatureCryptoVerification(false, 'Document timestamp does not encapsulate an RFC 3161 TSTInfo.');
         }
-    }
 
-    /**
-     * ContentInfo { contentType, [0] SignedData { version, digestAlgorithms, encapContentInfo { eContentType, ... } } }
-     */
-    private function encapsulatedContentType(string $token): string
-    {
-        [, $contentInfo] = Der::readTlvStrict($token);
-        [, , $afterContentType] = Der::readTlvStrict($contentInfo);
-        [, $explicit] = Der::readTlvStrict($contentInfo, $afterContentType);
-        [, $signedData] = Der::readTlvStrict($explicit);
-        [, , $afterVersion] = Der::readTlvStrict($signedData);
-        [, , $afterDigestAlgorithms] = Der::readTlvStrict($signedData, $afterVersion);
-        [, $encapContentInfo] = Der::readTlvStrict($signedData, $afterDigestAlgorithms);
-        [$tag, $oid] = Der::readTlvStrict($encapContentInfo);
+        $signature = $this->cmsVerifier->verify($signedData);
+        if (! $signature->valid) {
+            return new SignatureCryptoVerification(false, 'Timestamp token signature is invalid: '.$signature->message);
+        }
 
-        return Der::tlv($tag, $oid);
+        $tstInfo = (string) $signedData->encapsulatedContent;
+        $imprintError = $this->messageImprintError($tstInfo, $signedContent);
+        if ($imprintError !== null) {
+            return new SignatureCryptoVerification(false, $imprintError);
+        }
+
+        $genTime = $this->genTime($tstInfo);
+        if ($genTime === null) {
+            return new SignatureCryptoVerification(false, 'Timestamp token has a missing or invalid genTime.');
+        }
+
+        $signer = @openssl_x509_parse((string) $signature->signerCertificatePem());
+        // OpenSSL's timestampsign purpose requires the critical, exclusive timeStamping
+        // EKU specified by RFC 3161 and checks the key usage, independently of chain trust.
+        if (! is_array($signer) || ($signer['purposes'][self::PURPOSE_TIMESTAMP_SIGN][0] ?? false) !== true) {
+            return new SignatureCryptoVerification(false, 'Timestamp signer certificate does not satisfy the RFC 3161 timeStamping purpose.');
+        }
+
+        return new SignatureCryptoVerification(true, signingTime: $genTime);
     }
 
     /**
@@ -171,15 +150,5 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
         $time = \DateTimeImmutable::createFromFormat('!YmdHis', $match[1], new \DateTimeZone('UTC'));
 
         return ($time !== false && $time->format('YmdHis') === $match[1]) ? $time : null;
-    }
-
-    private function createTempFile(string $prefix): string
-    {
-        $path = tempnam(sys_get_temp_dir(), $prefix);
-        if ($path === false) {
-            throw new SignatureValidationException('Could not create temporary files for timestamp validation.');
-        }
-
-        return $path;
     }
 }
