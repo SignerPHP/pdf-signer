@@ -4,15 +4,25 @@ declare(strict_types=1);
 
 namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
-use SignerPHP\PdfSigner\Domain\Exception\SignatureValidationException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCryptoVerifierInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignatureVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignedData;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignatureCryptoVerification;
 
+/**
+ * Verifies a detached CMS signature over the signed ByteRange in PHP (no `openssl` binary).
+ */
 final class OpenSslSignatureCryptoVerifier implements SignatureCryptoVerifierInterface
 {
+    /**
+     * @param  ProcessRunnerInterface|null  $processRunner  unused since verification became native; kept for constructor compatibility
+     *
+     * @psalm-suppress UnusedParam
+     */
     public function __construct(
-        private readonly ProcessRunnerInterface $processRunner = new ShellProcessRunner,
+        ?ProcessRunnerInterface $processRunner = null,
+        private readonly CmsSignatureVerifier $cmsVerifier = new CmsSignatureVerifier,
     ) {}
 
     public function verify(string $signedContent, string $signatureHex): SignatureCryptoVerification
@@ -21,47 +31,18 @@ final class OpenSslSignatureCryptoVerifier implements SignatureCryptoVerifierInt
             return new SignatureCryptoVerification(false, 'Empty signature contents.');
         }
 
-        $signatureDer = hex2bin($signatureHex);
-        if ($signatureDer === false) {
+        if (strlen($signatureHex) % 2 !== 0 || ! ctype_xdigit($signatureHex)) {
             return new SignatureCryptoVerification(false, 'Invalid signature hex payload.');
         }
 
-        $tmpDir = sys_get_temp_dir();
-        $contentFile = $this->createTempFile($tmpDir, 'pdf-sig-content');
-        $signatureFile = $this->createTempFile($tmpDir, 'pdf-sig-cms');
-        $outputFile = $this->createTempFile($tmpDir, 'pdf-sig-out');
-
-        file_put_contents($contentFile, $signedContent);
-        file_put_contents($signatureFile, $signatureDer);
-
         try {
-            $command = sprintf(
-                'openssl cms -verify -binary -inform DER -in %s -content %s -noverify -out %s',
-                escapeshellarg($signatureFile),
-                escapeshellarg($contentFile),
-                escapeshellarg($outputFile),
-            );
-
-            $result = $this->processRunner->run($command);
-            if (! $result->succeeded()) {
-                return new SignatureCryptoVerification(false, $result->outputAsString());
-            }
-
-            return new SignatureCryptoVerification(true);
-        } finally {
-            @unlink($contentFile);
-            @unlink($signatureFile);
-            @unlink($outputFile);
-        }
-    }
-
-    private function createTempFile(string $tmpDir, string $prefix): string
-    {
-        $path = tempnam($tmpDir, $prefix);
-        if ($path === false) {
-            throw new SignatureValidationException('Could not create temporary files for signature validation.');
+            $signedData = CmsSignedData::fromHex($signatureHex);
+        } catch (\UnexpectedValueException $exception) {
+            return new SignatureCryptoVerification(false, 'Invalid CMS signature: '.$exception->getMessage());
         }
 
-        return $path;
+        $result = $this->cmsVerifier->verify($signedData, $signedContent);
+
+        return new SignatureCryptoVerification($result->valid, $result->message);
     }
 }

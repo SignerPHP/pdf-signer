@@ -83,85 +83,72 @@ final class OpenSslBrazilPolicyListVerifierTest extends TestCase
         self::assertStringContainsString('Could not download LPA PAdES signature', (string) $result->message);
     }
 
-    public function test_verify_returns_valid_when_der_command_succeeds(): void
+    public function test_verifies_the_official_iti_lpa_signature(): void
     {
-        $httpClient = $this->successHttpClient();
-        $processRunner = new class implements ProcessRunnerInterface
-        {
-            public array $commands = [];
+        // Official LPA PAdES and its BER-encoded detached signature, as published by ITI.
+        $result = $this->verifyWith(self::fixture('LPA_PAdES.der'), self::fixture('LPA_PAdES.p7s'));
 
-            public function run(string $command): ProcessResult
-            {
-                $this->commands[] = $command;
-
-                return new ProcessResult(0);
-            }
-        };
-
-        $verifier = new OpenSslBrazilPolicyListVerifier($httpClient, $processRunner);
-        $result = $verifier->verifyPadesPolicy(new SignatureValidationOptionsDto(
-            lpaUrlAsn1Pades: 'https://example.local/lpa.der',
-            lpaUrlAsn1SignaturePades: 'https://example.local/lpa.p7s',
-        ));
-
-        self::assertTrue($result->valid);
-        self::assertCount(1, $processRunner->commands);
-        self::assertStringContainsString('-inform DER', $processRunner->commands[0]);
+        self::assertTrue($result->valid, (string) $result->message);
     }
 
-    public function test_verify_fallbacks_to_smime_command_when_der_fails(): void
+    public function test_accepts_pem_and_smime_encoded_signatures(): void
     {
-        $httpClient = $this->successHttpClient();
-        $processRunner = new class implements ProcessRunnerInterface
-        {
-            public int $calls = 0;
+        $base64 = chunk_split(base64_encode(self::fixture('LPA_PAdES.p7s')), 64, "\n");
 
-            public function run(string $command): ProcessResult
-            {
-                $this->calls++;
-                if (str_contains($command, '-inform DER')) {
-                    return new ProcessResult(1, ['der failed']);
-                }
-
-                return new ProcessResult(0);
-            }
-        };
-
-        $verifier = new OpenSslBrazilPolicyListVerifier($httpClient, $processRunner);
-        $result = $verifier->verifyPadesPolicy(new SignatureValidationOptionsDto(
-            lpaUrlAsn1Pades: 'https://example.local/lpa.der',
-            lpaUrlAsn1SignaturePades: 'https://example.local/lpa.p7s',
-        ));
-
-        self::assertTrue($result->valid);
-        self::assertSame(2, $processRunner->calls);
+        self::assertTrue($this->verifyWith(self::fixture('LPA_PAdES.der'), "-----BEGIN PKCS7-----\n{$base64}-----END PKCS7-----\n")->valid);
+        self::assertTrue($this->verifyWith(self::fixture('LPA_PAdES.der'), "Content-Type: application/pkcs7-signature; name=\"smime.p7s\"\nContent-Transfer-Encoding: base64\n\n{$base64}")->valid);
     }
 
-    public function test_verify_returns_invalid_when_both_commands_fail(): void
+    public function test_rejects_a_modified_lpa(): void
     {
-        $httpClient = $this->successHttpClient();
-        $processRunner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                return new ProcessResult(1, ['failed']);
-            }
-        };
-
-        $verifier = new OpenSslBrazilPolicyListVerifier($httpClient, $processRunner);
-        $result = $verifier->verifyPadesPolicy(new SignatureValidationOptionsDto(
-            lpaUrlAsn1Pades: 'https://example.local/lpa.der',
-            lpaUrlAsn1SignaturePades: 'https://example.local/lpa.p7s',
-        ));
+        $result = $this->verifyWith(self::fixture('LPA_PAdES.der').' ', self::fixture('LPA_PAdES.p7s'));
 
         self::assertFalse($result->valid);
         self::assertSame('LPA PAdES signature verification failed.', $result->message);
     }
 
-    private function successHttpClient(): HttpClientInterface
+    public function test_rejects_a_signature_that_is_not_cms(): void
     {
-        return new class implements HttpClientInterface
+        $result = $this->verifyWith(self::fixture('LPA_PAdES.der'), 'not a signature');
+
+        self::assertFalse($result->valid);
+        self::assertSame('LPA PAdES signature verification failed.', $result->message);
+    }
+
+    public function test_a_process_runner_is_still_accepted_and_never_used(): void
+    {
+        $runner = new class implements ProcessRunnerInterface
         {
+            public function run(string $command): ProcessResult
+            {
+                throw new \LogicException('No external process may run.');
+            }
+        };
+
+        $verifier = new OpenSslBrazilPolicyListVerifier($this->httpClientServing(self::fixture('LPA_PAdES.der'), self::fixture('LPA_PAdES.p7s')), $runner);
+
+        self::assertTrue($verifier->verifyPadesPolicy($this->options())->valid);
+    }
+
+    private function verifyWith(string $lpa, string $signature): \SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignaturePolicyVerification
+    {
+        return (new OpenSslBrazilPolicyListVerifier($this->httpClientServing($lpa, $signature)))->verifyPadesPolicy($this->options());
+    }
+
+    private function options(): SignatureValidationOptionsDto
+    {
+        return new SignatureValidationOptionsDto(
+            lpaUrlAsn1Pades: 'https://example.local/lpa.der',
+            lpaUrlAsn1SignaturePades: 'https://example.local/lpa.p7s',
+        );
+    }
+
+    private function httpClientServing(string $lpa, string $signature): HttpClientInterface
+    {
+        return new class($lpa, $signature) implements HttpClientInterface
+        {
+            public function __construct(private readonly string $lpa, private readonly string $signature) {}
+
             public function request(
                 string $method,
                 string $url,
@@ -170,8 +157,13 @@ final class OpenSslBrazilPolicyListVerifierTest extends TestCase
                 int $timeoutSeconds = 10,
                 bool $followRedirects = false
             ): HttpResponse {
-                return new HttpResponse(200, 'dummy-content');
+                return new HttpResponse(200, str_ends_with($url, '.p7s') ? $this->signature : $this->lpa);
             }
         };
+    }
+
+    private static function fixture(string $name): string
+    {
+        return (string) file_get_contents(dirname(__DIR__).'/Fixtures/icp-brasil/'.$name);
     }
 }
