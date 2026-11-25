@@ -4,17 +4,73 @@ declare(strict_types=1);
 
 namespace SignerPHP\PdfSigner\Tests\Unit;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
+use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslRfc3161TimestampTokenProvider;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
-use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
 
+/**
+ * The TSA endpoint is faked by an HTTP client that answers each request with a real
+ * TimeStampResp issued by a throwaway TSA through `openssl ts -reply`.
+ */
 final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
 {
+    private const DOCUMENT = '1234567890ABCDEF';
+
+    /** Bytes covered by the ByteRange [0, 4, 8, 4] of DOCUMENT. */
+    private const COVERED = '123490AB';
+
+    private const TSA_URL = 'https://tsa.local/stamp';
+
+    private const TOKEN_URL = 'https://tsa.local/token';
+
+    private static string $dir;
+
+    public static function setUpBeforeClass(): void
+    {
+        self::$dir = sys_get_temp_dir().'/rfc3161-provider-test-'.bin2hex(random_bytes(4));
+        mkdir(self::$dir);
+        $d = escapeshellarg(self::$dir);
+
+        file_put_contents(self::$dir.'/ext.cnf', implode("\n", [
+            '[req]', 'distinguished_name = dn', 'prompt = no', '[dn]', 'CN = TSA Test',
+            '[v3_ca]', 'basicConstraints = critical, CA:TRUE', 'keyUsage = critical, keyCertSign',
+            '[v3_tsa]', 'basicConstraints = critical, CA:FALSE', 'keyUsage = critical, digitalSignature', 'extendedKeyUsage = critical, timeStamping', '',
+        ]));
+        file_put_contents(self::$dir.'/tsa.cnf', implode("\n", [
+            '[tsa]', 'default_tsa = t', '[t]',
+            'serial = '.self::$dir.'/serial', 'crypto_device = builtin',
+            'signer_cert = '.self::$dir.'/tsa.crt', 'signer_key = '.self::$dir.'/tsa.key', 'certs = '.self::$dir.'/ca.crt',
+            'signer_digest = sha256', 'default_policy = 1.2.3.4.1', 'digests = sha224, sha256, sha384, sha512', 'ess_cert_id_alg = sha256', '',
+        ]));
+        file_put_contents(self::$dir.'/serial', "01\n");
+        file_put_contents(self::$dir.'/covered.bin', self::COVERED);
+        file_put_contents(self::$dir.'/other.bin', 'other content');
+
+        self::shell(<<<SH
+            cd $d
+            openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.crt -days 2 -subj /CN=TSA-Test-CA -config ext.cnf -extensions v3_ca
+            openssl req -new -newkey rsa:2048 -nodes -keyout tsa.key -out tsa.csr -subj /CN=TSA-Test -config ext.cnf
+            openssl x509 -req -in tsa.csr -CA ca.crt -CAkey ca.key -CAcreateserial -out tsa.crt -days 2 -extfile ext.cnf -extensions v3_tsa
+            openssl x509 -in tsa.crt -outform DER -out tsa.der
+            openssl ts -query -data covered.bin -sha256 -cert -out other-nonce.tsq
+            openssl ts -reply -config tsa.cnf -queryfile other-nonce.tsq -out other-nonce.tsr
+            openssl ts -query -data covered.bin -sha256 -cert -no_nonce -out no-nonce.tsq
+            openssl ts -reply -config tsa.cnf -queryfile no-nonce.tsq -out no-nonce.tsr
+            openssl ts -query -data other.bin -sha256 -cert -out other-data.tsq
+            openssl ts -reply -config tsa.cnf -queryfile other-data.tsq -out other-data.tsr
+            SH);
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        self::shell('rm -rf '.escapeshellarg(self::$dir));
+    }
+
     protected function setUp(): void
     {
         $reflection = new \ReflectionClass(OpenSslRfc3161TimestampTokenProvider::class);
@@ -22,550 +78,410 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
         $cache->setValue(null, []);
     }
 
-    protected function tearDown(): void
+    public function test_request_token_hex_returns_the_token_issued_by_the_tsa(): void
     {
-        NativeFunctionOverrideState::$forceTempnamFailure = false;
+        foreach (['sha224', 'sha256', 'sha384', 'sha512'] as $algorithm) {
+            $client = $this->tsaClient();
+            $provider = new OpenSslRfc3161TimestampTokenProvider($client);
+
+            $hex = $provider->requestTokenHex(self::DOCUMENT, [0, 4, 8, 4], new TimestampOptionsDto(
+                tsaUrl: self::TSA_URL,
+                hashAlgorithm: $algorithm,
+                username: 'user',
+                password: 'pass',
+            ));
+
+            self::assertMatchesRegularExpression('/^[0-9A-F]+$/', $hex);
+            $token = (string) hex2bin($hex);
+            self::assertSame($this->tokenOf($client->lastReply), $token, $algorithm);
+            self::assertStringContainsString(hash($algorithm, self::COVERED, true), $token, $algorithm);
+            // certReq defaults to true, so the TSA embeds its certificate in the token.
+            self::assertStringContainsString((string) file_get_contents(self::$dir.'/tsa.der'), $token, $algorithm);
+
+            $call = $client->calls[0];
+            self::assertSame('POST', $call['method']);
+            self::assertSame(self::TSA_URL, $call['url']);
+            self::assertContains('Content-Type: application/timestamp-query', $call['headers']);
+            self::assertContains('Accept: application/timestamp-reply', $call['headers']);
+            self::assertContains('Content-Length: '.strlen($call['body']), $call['headers']);
+            self::assertContains('Authorization: Basic '.base64_encode('user:pass'), $call['headers']);
+        }
     }
 
-    public function test_request_token_hex_returns_uppercase_hex_from_generated_token(): void
+    public function test_request_is_a_der_time_stamp_req_with_a_fresh_nonce(): void
     {
-        $httpCalls = [];
-        $httpClient = new class($httpCalls) implements HttpClientInterface
-        {
-            /** @param array<int, array<string, mixed>> $calls */
-            public function __construct(private array &$calls) {}
+        $client = $this->tsaClient();
+        $provider = new OpenSslRfc3161TimestampTokenProvider($client);
+        $options = new TimestampOptionsDto(tsaUrl: self::TSA_URL);
 
-            public function request(
-                string $method,
-                string $url,
-                array $headers = [],
-                string $body = '',
-                int $timeoutSeconds = 10,
-                bool $followRedirects = false
-            ): HttpResponse {
-                $this->calls[] = compact('method', 'url', 'headers', 'body');
+        $provider->requestTokenHex(self::DOCUMENT, [0, 4, 8, 4], $options);
+        $provider->requestTokenHex(self::DOCUMENT, [0, 4, 8, 4], $options);
 
-                return new HttpResponse(200, 'reply-binary');
-            }
-        };
+        $sha256 = Der::sequence(Der::objectIdentifier('2.16.840.1.101.3.4.2.1').Der::null());
+        $prefix = "\x02\x01\x01".Der::sequence($sha256.Der::octetString(hash('sha256', self::COVERED, true)));
+        $nonces = [];
+        foreach ($client->calls as $call) {
+            [$tag, $request, $end] = Der::readTlvStrict($call['body']);
+            self::assertSame(0x30, $tag);
+            self::assertSame(strlen($call['body']), $end);
+            self::assertStringStartsWith($prefix, $request);
 
-        $processRunner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                if (str_contains($command, 'openssl ts -query')) {
-                    $out = $this->extractPath($command, '-out');
-                    file_put_contents($out, 'query-bytes');
+            [$tag, $nonce, $offset] = Der::readTlvStrict($request, strlen($prefix));
+            self::assertSame(0x02, $tag);
+            self::assertSame(8, strlen($nonce));
+            self::assertLessThan(0x80, ord($nonce[0]));
+            self::assertSame("\x01\x01\xFF", substr($request, $offset));
+            $nonces[] = $nonce;
+        }
 
-                    return new ProcessResult(0);
-                }
+        self::assertNotSame($nonces[0], $nonces[1]);
+    }
 
-                if (str_contains($command, 'openssl ts -reply')) {
-                    $out = $this->extractPath($command, '-out');
-                    file_put_contents($out, "\xDE\xAD\xBE\xEF");
+    public function test_request_omits_cert_req_when_disabled(): void
+    {
+        $client = $this->tsaClient();
 
-                    return new ProcessResult(0);
-                }
-
-                return new ProcessResult(1, ['unexpected command']);
-            }
-
-            private function extractPath(string $command, string $flag): string
-            {
-                preg_match('/'.preg_quote($flag, '/')." '([^']+)'/", $command, $matches);
-
-                return $matches[1] ?? '';
-            }
-        };
-
-        $provider = new OpenSslRfc3161TimestampTokenProvider($httpClient, $processRunner);
-        $options = new TimestampOptionsDto(
-            tsaUrl: 'https://tsa.local/stamp',
-            hashAlgorithm: 'sha256',
-            certReq: true,
-            username: 'user',
-            password: 'pass',
+        $hex = (new OpenSslRfc3161TimestampTokenProvider($client))->requestTokenHex(
+            self::DOCUMENT,
+            [0, 4, 8, 4],
+            new TimestampOptionsDto(tsaUrl: self::TSA_URL, hashAlgorithm: 'sha256', certReq: false),
         );
 
-        $hex = $provider->requestTokenHex('1234567890ABCDEF', [0, 4, 8, 4], $options);
-
-        self::assertSame('DEADBEEF', $hex);
-        self::assertCount(1, $httpCalls);
-        self::assertStringContainsString('Authorization: Basic '.base64_encode('user:pass'), implode("\n", $httpCalls[0]['headers']));
+        [, $request] = Der::readTlvStrict($client->calls[0]['body']);
+        [, , $offset] = Der::readTlvStrict($request);
+        [, , $offset] = Der::readTlvStrict($request, $offset);
+        [$tag, , $offset] = Der::readTlvStrict($request, $offset);
+        self::assertSame(0x02, $tag);
+        self::assertSame(strlen($request), $offset, 'certReq FALSE is the DEFAULT and is not encoded.');
+        self::assertStringNotContainsString((string) file_get_contents(self::$dir.'/tsa.der'), (string) hex2bin($hex));
     }
 
     public function test_request_token_hex_throws_for_unsupported_hash_algorithm(): void
     {
-        $provider = new OpenSslRfc3161TimestampTokenProvider(
-            new class implements HttpClientInterface
-            {
-                public function request(
-                    string $method,
-                    string $url,
-                    array $headers = [],
-                    string $body = '',
-                    int $timeoutSeconds = 10,
-                    bool $followRedirects = false
-                ): HttpResponse {
-                    return new HttpResponse(200, '');
-                }
-            },
-            new class implements ProcessRunnerInterface
-            {
-                public function run(string $command): ProcessResult
-                {
-                    return new ProcessResult(0);
-                }
-            }
-        );
-
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Unsupported hash algorithm: md5');
 
-        $provider->requestTokenHex('abcd', [0, 2, 2, 2], new TimestampOptionsDto(
-            tsaUrl: 'https://tsa.local/stamp',
+        (new OpenSslRfc3161TimestampTokenProvider($this->tsaClient()))->requestTokenHex('abcd', [0, 2, 2, 2], new TimestampOptionsDto(
+            tsaUrl: self::TSA_URL,
             hashAlgorithm: 'md5',
         ));
     }
 
-    public function test_request_token_hex_allows_custom_timestamp_headers(): void
+    public function test_request_token_hex_reports_a_request_rejected_by_the_tsa(): void
     {
-        $httpCalls = [];
-        $httpClient = new class($httpCalls) implements HttpClientInterface
-        {
-            /** @param array<int, array<string, mixed>> $calls */
-            public function __construct(private array &$calls) {}
+        // The test TSA does not accept SHA-1 imprints and answers with rejection / badAlg.
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessageMatches('/^TSA did not grant the timestamp request\. Status: rejection\. Failure info: badAlg\. Status text: .+/');
 
-            public function request(
-                string $method,
-                string $url,
-                array $headers = [],
-                string $body = '',
-                int $timeoutSeconds = 10,
-                bool $followRedirects = false
-            ): HttpResponse {
-                $this->calls[] = compact('method', 'url', 'headers', 'body');
-
-                return new HttpResponse(200, 'reply-binary');
-            }
-        };
-
-        $processRunner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                if (str_contains($command, 'openssl ts -query')) {
-                    $out = $this->extractPath($command, '-out');
-                    file_put_contents($out, 'query-bytes');
-
-                    return new ProcessResult(0);
-                }
-
-                if (str_contains($command, 'openssl ts -reply')) {
-                    $out = $this->extractPath($command, '-out');
-                    file_put_contents($out, "\xAA");
-
-                    return new ProcessResult(0);
-                }
-
-                return new ProcessResult(1, ['unexpected command']);
-            }
-
-            private function extractPath(string $command, string $flag): string
-            {
-                preg_match('/'.preg_quote($flag, '/')." '([^']+)'/", $command, $matches);
-
-                return $matches[1] ?? '';
-            }
-        };
-
-        $provider = new OpenSslRfc3161TimestampTokenProvider($httpClient, $processRunner);
-        $provider->requestTokenHex('abcd1234', [0, 4, 4, 4], new TimestampOptionsDto(
-            tsaUrl: 'https://tsa.local/stamp',
-            customHeaders: [
-                'content-type' => 'application/octet-stream',
-                'X-Act-Key' => 'abc123',
-            ],
-        ));
-
-        self::assertCount(1, $httpCalls);
-        $headers = implode("\n", $httpCalls[0]['headers']);
-        self::assertStringContainsString('Content-Type: application/octet-stream', $headers);
-        self::assertStringContainsString('X-Act-Key: abc123', $headers);
+        (new OpenSslRfc3161TimestampTokenProvider($this->tsaClient()))->requestTokenHex(
+            self::DOCUMENT,
+            [0, 4, 8, 4],
+            new TimestampOptionsDto(tsaUrl: self::TSA_URL, hashAlgorithm: 'sha1'),
+        );
     }
 
-    public function test_request_token_hex_throws_when_oauth_token_response_is_invalid(): void
+    public function test_request_token_hex_reports_status_without_text_and_unknown_failure_bits(): void
     {
-        $httpClient = new class implements HttpClientInterface
-        {
-            public function request(
-                string $method,
-                string $url,
-                array $headers = [],
-                string $body = '',
-                int $timeoutSeconds = 10,
-                bool $followRedirects = false
-            ): HttpResponse {
-                if (str_contains($url, '/token')) {
-                    return new HttpResponse(200, '{"token_type":"Bearer"}');
-                }
+        // waiting, no statusString, failInfo with systemFailure (bit 25) and an unassigned bit 26.
+        $reply = Der::sequence(Der::sequence("\x02\x01\x03".Der::tlv(0x03, "\x05\x00\x00\x00\x60")));
 
-                return new HttpResponse(200, 'reply');
-            }
-        };
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('TSA did not grant the timestamp request. Status: waiting. Failure info: systemFailure, bit 26. Status text: none');
 
-        $processRunner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                if (str_contains($command, 'openssl ts -query')) {
-                    $out = $this->extractPath($command, '-out');
-                    file_put_contents($out, 'query');
-
-                    return new ProcessResult(0);
-                }
-
-                return new ProcessResult(0);
-            }
-
-            private function extractPath(string $command, string $flag): string
-            {
-                preg_match('/'.preg_quote($flag, '/')." '([^']+)'/", $command, $matches);
-
-                return $matches[1] ?? '';
-            }
-        };
-
-        $provider = new OpenSslRfc3161TimestampTokenProvider($httpClient, $processRunner);
-
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Invalid OAuth token response from TSA auth endpoint.');
-
-        $provider->requestTokenHex('abcdef', [0, 3, 3, 3], new TimestampOptionsDto(
-            tsaUrl: 'https://tsa.local/stamp',
-            oauthClientId: 'id',
-            oauthClientSecret: 'secret',
-            oauthTokenUrl: 'https://tsa.local/token',
-        ));
+        $this->requestWithReply($reply);
     }
 
-    public function test_request_token_hex_reuses_cached_oauth_token(): void
+    public function test_request_token_hex_reports_an_unknown_status_with_its_text(): void
     {
-        $tokenRequests = 0;
-        $httpClient = new class($tokenRequests) implements HttpClientInterface
-        {
-            public function __construct(private int &$tokenRequests) {}
+        $reply = Der::sequence(Der::sequence("\x02\x01\x09".Der::sequence(Der::tlv(0x0C, 'busy').Der::tlv(0x0C, 'retry later'))));
 
-            public function request(
-                string $method,
-                string $url,
-                array $headers = [],
-                string $body = '',
-                int $timeoutSeconds = 10,
-                bool $followRedirects = false
-            ): HttpResponse {
-                if (str_contains($url, '/token')) {
-                    $this->tokenRequests++;
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('TSA did not grant the timestamp request. Status: 9. Failure info: none. Status text: busy | retry later');
 
-                    return new HttpResponse(200, '{"access_token":"cached-token","expires_in":300}');
-                }
+        $this->requestWithReply($reply);
+    }
 
-                return new HttpResponse(200, 'reply');
-            }
-        };
+    public function test_request_token_hex_rejects_a_token_for_another_nonce(): void
+    {
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('TSA response nonce does not match the timestamp request.');
 
-        $processRunner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                if (str_contains($command, 'openssl ts -query')) {
-                    $out = $this->extractPath($command, '-out');
-                    file_put_contents($out, 'query');
+        $this->requestWithReply((string) file_get_contents(self::$dir.'/other-nonce.tsr'));
+    }
 
-                    return new ProcessResult(0);
-                }
+    public function test_request_token_hex_rejects_a_token_without_the_nonce(): void
+    {
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('TSA response does not echo the timestamp request nonce.');
 
-                if (str_contains($command, 'openssl ts -reply')) {
-                    $out = $this->extractPath($command, '-out');
-                    file_put_contents($out, "\xAA");
+        $this->requestWithReply((string) file_get_contents(self::$dir.'/no-nonce.tsr'));
+    }
 
-                    return new ProcessResult(0);
-                }
+    public function test_request_token_hex_rejects_a_token_for_other_data(): void
+    {
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('TSA response message imprint does not match the timestamp request.');
 
-                return new ProcessResult(1, ['unexpected']);
-            }
+        $this->requestWithReply((string) file_get_contents(self::$dir.'/other-data.tsr'));
+    }
 
-            private function extractPath(string $command, string $flag): string
-            {
-                preg_match('/'.preg_quote($flag, '/')." '([^']+)'/", $command, $matches);
-
-                return $matches[1] ?? '';
-            }
-        };
-
-        $provider = new OpenSslRfc3161TimestampTokenProvider($httpClient, $processRunner);
-        $options = new TimestampOptionsDto(
-            tsaUrl: 'https://tsa.local/stamp',
-            oauthClientId: 'id',
-            oauthClientSecret: 'secret',
-            oauthTokenUrl: 'https://tsa.local/token',
+    /**
+     * @return iterable<string, array{0:string,1:string}>
+     */
+    public static function malformedReplies(): iterable
+    {
+        $granted = Der::sequence("\x02\x01\x00");
+        $tstInfoOid = Der::objectIdentifier('1.2.840.113549.1.9.16.1.4');
+        $token = static fn (string $contentType, string $encap): string => Der::sequence(
+            Der::objectIdentifier($contentType).Der::contextSpecific(0, Der::sequence("\x02\x01\x03".Der::set('').$encap))
         );
 
-        $first = $provider->requestTokenHex('abcdefgh', [0, 4, 4, 4], $options);
-        $second = $provider->requestTokenHex('12345678', [0, 4, 4, 4], $options);
-
-        self::assertSame('AA', $first);
-        self::assertSame('AA', $second);
-        self::assertSame(1, $tokenRequests);
+        yield 'not DER' => ['not-der', 'DER value exceeds its container.'];
+        yield 'not a SEQUENCE' => ["\x04\x00", 'TimeStampResp is malformed.'];
+        yield 'status info not a SEQUENCE' => [Der::sequence("\x04\x00"), 'PKIStatusInfo is malformed.'];
+        yield 'status not an INTEGER' => [Der::sequence(Der::sequence("\x04\x01\x00")), 'PKIStatus is malformed.'];
+        yield 'empty status' => [Der::sequence(Der::sequence("\x02\x00")), 'PKIStatus is not a valid integer.'];
+        yield 'granted without token' => [Der::sequence($granted), 'TimeStampResp has no timeStampToken.'];
+        yield 'token not a SEQUENCE' => [Der::sequence($granted."\x04\x00"), 'timeStampToken is malformed.'];
+        yield 'token not SignedData' => [
+            Der::sequence($granted.$token('1.2.840.113549.1.7.1', Der::sequence($tstInfoOid))),
+            'timeStampToken is not a CMS SignedData.',
+        ];
+        yield 'token without TSTInfo' => [
+            Der::sequence($granted.$token('1.2.840.113549.1.7.2', Der::sequence(Der::objectIdentifier('1.2.840.113549.1.7.1')))),
+            'timeStampToken does not encapsulate a TSTInfo.',
+        ];
+        yield 'TSTInfo not an OCTET STRING' => [
+            Der::sequence($granted.$token('1.2.840.113549.1.7.2', Der::sequence($tstInfoOid.Der::contextSpecific(0, Der::set(''))))),
+            'eContent is malformed.',
+        ];
+        yield 'TSTInfo not a SEQUENCE' => [
+            Der::sequence($granted.$token('1.2.840.113549.1.7.2', Der::sequence($tstInfoOid.Der::contextSpecific(0, Der::octetString(Der::set('')))))),
+            'TSTInfo is malformed.',
+        ];
     }
 
-    public function test_request_token_hex_throws_when_temp_files_cannot_be_created(): void
+    #[DataProvider('malformedReplies')]
+    public function test_request_token_hex_rejects_a_malformed_reply(string $reply, string $reason): void
     {
-        NativeFunctionOverrideState::$forceTempnamFailure = true;
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('Could not extract RFC3161 token from TSA response. '.$reason);
 
-        $provider = new OpenSslRfc3161TimestampTokenProvider(
-            new class implements HttpClientInterface
-            {
-                public function request(
-                    string $method,
-                    string $url,
-                    array $headers = [],
-                    string $body = '',
-                    int $timeoutSeconds = 10,
-                    bool $followRedirects = false
-                ): HttpResponse {
-                    return new HttpResponse(200, 'ok');
-                }
-            },
-            new class implements ProcessRunnerInterface
-            {
-                public function run(string $command): ProcessResult
-                {
-                    return new ProcessResult(0, ['ok']);
-                }
-            }
-        );
-
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Could not create temporary file for timestamp processing.');
-        $provider->requestTokenHex('abcd', [0, 2, 2, 2], new TimestampOptionsDto(tsaUrl: 'https://tsa.local/stamp'));
+        $this->requestWithReply($reply);
     }
 
     public function test_request_token_hex_throws_when_tsa_reply_request_fails(): void
     {
-        $provider = new OpenSslRfc3161TimestampTokenProvider(
-            new class implements HttpClientInterface
-            {
-                public function request(
-                    string $method,
-                    string $url,
-                    array $headers = [],
-                    string $body = '',
-                    int $timeoutSeconds = 10,
-                    bool $followRedirects = false
-                ): HttpResponse {
-                    return new HttpResponse(500, '', 'network down');
-                }
-            },
-            new class implements ProcessRunnerInterface
-            {
-                public function run(string $command): ProcessResult
-                {
-                    if (str_contains($command, 'openssl ts -query')) {
-                        preg_match("/-out '([^']+)'/", $command, $matches);
-                        if (isset($matches[1])) {
-                            file_put_contents($matches[1], 'query');
-                        }
-                    }
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('Could not fetch RFC3161 timestamp response from TSA endpoint. Status: 503. Transport error: none. Body: unavailable');
 
-                    return new ProcessResult(0);
-                }
-            }
-        );
-
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Could not fetch RFC3161 timestamp response from TSA endpoint');
-        $provider->requestTokenHex('abcdef', [0, 3, 3, 3], new TimestampOptionsDto(tsaUrl: 'https://tsa.local/stamp'));
+        $this->requestWithReply('unavailable', 503);
     }
 
-    public function test_request_token_hex_throws_when_oauth_endpoint_returns_non_200(): void
+    public function test_request_token_hex_throws_when_tsa_reply_is_empty(): void
     {
-        $provider = new OpenSslRfc3161TimestampTokenProvider(
-            new class implements HttpClientInterface
-            {
-                public function request(
-                    string $method,
-                    string $url,
-                    array $headers = [],
-                    string $body = '',
-                    int $timeoutSeconds = 10,
-                    bool $followRedirects = false
-                ): HttpResponse {
-                    if (str_contains($url, '/token')) {
-                        return new HttpResponse(401, '', 'unauthorized');
-                    }
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('Could not fetch RFC3161 timestamp response from TSA endpoint. Status: 200. Transport error: none. Body: [empty]');
 
-                    return new HttpResponse(200, 'reply');
-                }
-            },
-            new class implements ProcessRunnerInterface
-            {
-                public function run(string $command): ProcessResult
-                {
-                    if (str_contains($command, 'openssl ts -query')) {
-                        preg_match("/-out '([^']+)'/", $command, $matches);
-                        if (isset($matches[1])) {
-                            file_put_contents($matches[1], 'query');
-                        }
-                    }
+        $this->requestWithReply('');
+    }
 
-                    return new ProcessResult(0);
-                }
-            }
-        );
+    public function test_request_token_hex_accepts_201_responses(): void
+    {
+        $client = $this->tsaClient(tsaStatus: 201);
 
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Could not fetch OAuth token from TSA auth endpoint');
-        $provider->requestTokenHex('abcdef', [0, 3, 3, 3], new TimestampOptionsDto(
-            tsaUrl: 'https://tsa.local/stamp',
-            oauthClientId: 'id',
-            oauthClientSecret: 'secret',
-            oauthTokenUrl: 'https://tsa.local/token',
+        $hex = (new OpenSslRfc3161TimestampTokenProvider($client))->requestTokenHex(self::DOCUMENT, [0, 4, 8, 4], new TimestampOptionsDto(tsaUrl: self::TSA_URL));
+
+        self::assertSame($this->tokenOf($client->lastReply), hex2bin($hex));
+    }
+
+    public function test_request_token_hex_allows_custom_timestamp_headers(): void
+    {
+        $client = $this->tsaClient();
+
+        (new OpenSslRfc3161TimestampTokenProvider($client))->requestTokenHex(self::DOCUMENT, [0, 4, 8, 4], new TimestampOptionsDto(
+            tsaUrl: self::TSA_URL,
+            username: 'user',
+            password: 'pass',
+            customHeaders: ['x_api_key' => 'secret-key', 'authorization' => 'Token custom'],
         ));
+
+        $headers = $client->calls[0]['headers'];
+        self::assertContains('X-Api-Key: secret-key', $headers);
+        self::assertContains('Authorization: Token custom', $headers);
+        self::assertNotContains('Authorization: Basic '.base64_encode('user:pass'), $headers);
     }
 
-    public function test_request_token_hex_throws_when_query_command_fails(): void
+    public function test_request_token_hex_reuses_cached_oauth_token(): void
     {
-        $provider = new OpenSslRfc3161TimestampTokenProvider(
-            new class implements HttpClientInterface
-            {
-                public function request(
-                    string $method,
-                    string $url,
-                    array $headers = [],
-                    string $body = '',
-                    int $timeoutSeconds = 10,
-                    bool $followRedirects = false
-                ): HttpResponse {
-                    return new HttpResponse(200, 'unused');
-                }
-            },
-            new class implements ProcessRunnerInterface
-            {
-                public function run(string $command): ProcessResult
-                {
-                    return new ProcessResult(1, ['query failed']);
-                }
-            }
-        );
+        $client = $this->tsaClient(oauthBody: '{"access_token":"cached-token","expires_in":300}');
+        $provider = new OpenSslRfc3161TimestampTokenProvider($client);
+        $options = $this->oauthOptions();
 
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Could not build RFC3161 query using OpenSSL.');
-        $this->expectExceptionMessage('query failed');
-        $provider->requestTokenHex('abcd', [0, 2, 2, 2], new TimestampOptionsDto(tsaUrl: 'https://tsa.local/stamp'));
-    }
+        $provider->requestTokenHex('abcdefgh', [0, 4, 4, 4], $options);
+        $provider->requestTokenHex('12345678', [0, 4, 4, 4], $options);
 
-    public function test_request_token_hex_throws_when_generated_token_file_is_empty(): void
-    {
-        $provider = new OpenSslRfc3161TimestampTokenProvider(
-            new class implements HttpClientInterface
-            {
-                public function request(
-                    string $method,
-                    string $url,
-                    array $headers = [],
-                    string $body = '',
-                    int $timeoutSeconds = 10,
-                    bool $followRedirects = false
-                ): HttpResponse {
-                    return new HttpResponse(200, 'reply-binary');
-                }
-            },
-            new class implements ProcessRunnerInterface
-            {
-                public function run(string $command): ProcessResult
-                {
-                    if (str_contains($command, 'openssl ts -query')) {
-                        preg_match("/-out '([^']+)'/", $command, $matches);
-                        if (isset($matches[1])) {
-                            file_put_contents($matches[1], 'query');
-                        }
-                    }
-
-                    if (str_contains($command, 'openssl ts -reply')) {
-                        preg_match("/-out '([^']+)'/", $command, $matches);
-                        if (isset($matches[1])) {
-                            file_put_contents($matches[1], '');
-                        }
-                    }
-
-                    return new ProcessResult(0);
-                }
-            }
-        );
-
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Could not read timestamp token generated by OpenSSL.');
-        $provider->requestTokenHex('abcd', [0, 2, 2, 2], new TimestampOptionsDto(tsaUrl: 'https://tsa.local/stamp'));
+        self::assertSame(1, $client->tokenRequests);
+        $tokenCall = $client->calls[0];
+        self::assertSame(self::TOKEN_URL, $tokenCall['url']);
+        self::assertSame('grant_type=client_credentials', $tokenCall['body']);
+        self::assertContains('Authorization: Basic '.base64_encode('id:secret'), $tokenCall['headers']);
+        self::assertContains('Authorization: Bearer cached-token', $client->calls[1]['headers']);
+        self::assertContains('Authorization: Bearer cached-token', $client->calls[2]['headers']);
     }
 
     public function test_request_token_hex_oauth_cache_uses_default_expiration_when_expires_in_is_missing(): void
     {
-        $tokenRequests = 0;
-        $httpClient = new class($tokenRequests) implements HttpClientInterface
-        {
-            public function __construct(private int &$tokenRequests) {}
+        $client = $this->tsaClient(oauthBody: '{"access_token":"token-without-exp"}');
+        $provider = new OpenSslRfc3161TimestampTokenProvider($client);
+        $options = $this->oauthOptions();
 
-            public function request(
-                string $method,
-                string $url,
-                array $headers = [],
-                string $body = '',
-                int $timeoutSeconds = 10,
-                bool $followRedirects = false
-            ): HttpResponse {
-                if (str_contains($url, '/token')) {
-                    $this->tokenRequests++;
+        $provider->requestTokenHex('abcdefgh', [0, 4, 4, 4], $options);
+        $provider->requestTokenHex('ijklmnop', [0, 4, 4, 4], $options);
 
-                    return new HttpResponse(200, '{"access_token":"token-without-exp"}');
-                }
+        self::assertSame(1, $client->tokenRequests);
+        self::assertContains('Authorization: Bearer token-without-exp', $client->calls[2]['headers']);
+    }
 
-                return new HttpResponse(200, 'reply');
-            }
-        };
+    public function test_request_token_hex_refreshes_an_expiring_oauth_token(): void
+    {
+        // expires_in is raised to a 60s floor; a cached token within 30s of expiring is requested again.
+        $client = $this->tsaClient(oauthBody: '{"access_token":"short","expires_in":1}');
+        $provider = new OpenSslRfc3161TimestampTokenProvider($client);
+        $options = $this->oauthOptions();
 
-        $processRunner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                if (str_contains($command, 'openssl ts -query')) {
-                    preg_match("/-out '([^']+)'/", $command, $matches);
-                    if (isset($matches[1])) {
-                        file_put_contents($matches[1], 'query');
-                    }
-                }
+        $provider->requestTokenHex('abcdefgh', [0, 4, 4, 4], $options);
+        $cache = new \ReflectionProperty(OpenSslRfc3161TimestampTokenProvider::class, 'oauthTokenCache');
+        /** @var array<string, array{token:string,expiresAt:int}> $entries */
+        $entries = $cache->getValue();
+        $key = array_key_first($entries);
+        self::assertNotNull($key);
+        self::assertGreaterThanOrEqual(time() + 59, $entries[$key]['expiresAt']);
+        $entries[$key]['expiresAt'] = time() + 10;
+        $cache->setValue(null, $entries);
 
-                if (str_contains($command, 'openssl ts -reply')) {
-                    preg_match("/-out '([^']+)'/", $command, $matches);
-                    if (isset($matches[1])) {
-                        file_put_contents($matches[1], "\xAA");
-                    }
-                }
+        $provider->requestTokenHex('abcdefgh', [0, 4, 4, 4], $options);
 
-                return new ProcessResult(0);
-            }
-        };
+        self::assertSame(2, $client->tokenRequests);
+    }
 
-        $provider = new OpenSslRfc3161TimestampTokenProvider($httpClient, $processRunner);
-        $options = new TimestampOptionsDto(
-            tsaUrl: 'https://tsa.local/stamp',
+    public function test_request_token_hex_throws_when_oauth_token_response_is_invalid(): void
+    {
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('Invalid OAuth token response from TSA auth endpoint.');
+
+        (new OpenSslRfc3161TimestampTokenProvider($this->tsaClient(oauthBody: '{"token_type":"Bearer"}')))
+            ->requestTokenHex('abcdef', [0, 3, 3, 3], $this->oauthOptions());
+    }
+
+    public function test_request_token_hex_throws_when_oauth_endpoint_returns_non_200(): void
+    {
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('Could not fetch OAuth token from TSA auth endpoint. Status: 401. Transport error: none. Body: denied');
+
+        (new OpenSslRfc3161TimestampTokenProvider($this->tsaClient(oauthBody: 'denied', oauthStatus: 401)))
+            ->requestTokenHex('abcdef', [0, 3, 3, 3], $this->oauthOptions());
+    }
+
+    private function oauthOptions(): TimestampOptionsDto
+    {
+        return new TimestampOptionsDto(
+            tsaUrl: self::TSA_URL,
             oauthClientId: 'id',
             oauthClientSecret: 'secret',
-            oauthTokenUrl: 'https://tsa.local/token',
+            oauthTokenUrl: self::TOKEN_URL,
         );
+    }
 
-        self::assertSame('AA', $provider->requestTokenHex('abcdefgh', [0, 4, 4, 4], $options));
-        self::assertSame('AA', $provider->requestTokenHex('ijklmnop', [0, 4, 4, 4], $options));
-        self::assertSame(1, $tokenRequests);
+    private function requestWithReply(string $reply, int $status = 200): string
+    {
+        $client = new class($reply, $status) implements HttpClientInterface
+        {
+            public function __construct(private readonly string $reply, private readonly int $status) {}
+
+            public function request(string $method, string $url, array $headers = [], string $body = '', int $timeoutSeconds = 10, bool $followRedirects = false): HttpResponse
+            {
+                return new HttpResponse($this->status, $this->reply);
+            }
+        };
+
+        return (new OpenSslRfc3161TimestampTokenProvider($client))->requestTokenHex(
+            self::DOCUMENT,
+            [0, 4, 8, 4],
+            new TimestampOptionsDto(tsaUrl: self::TSA_URL),
+        );
+    }
+
+    /**
+     * An HTTP client that issues real TimeStampResp values with `openssl ts -reply` and, for the
+     * OAuth endpoint, returns the given body.
+     */
+    private function tsaClient(int $tsaStatus = 200, string $oauthBody = '', int $oauthStatus = 200): HttpClientInterface
+    {
+        return new class(self::$dir, $tsaStatus, $oauthBody, $oauthStatus) implements HttpClientInterface
+        {
+            /** @var list<array{method:string,url:string,headers:array<int,string>,body:string}> */
+            public array $calls = [];
+
+            public int $tokenRequests = 0;
+
+            public string $lastReply = '';
+
+            public function __construct(
+                private readonly string $dir,
+                private readonly int $tsaStatus,
+                private readonly string $oauthBody,
+                private readonly int $oauthStatus,
+            ) {}
+
+            public function request(string $method, string $url, array $headers = [], string $body = '', int $timeoutSeconds = 10, bool $followRedirects = false): HttpResponse
+            {
+                $this->calls[] = ['method' => $method, 'url' => $url, 'headers' => $headers, 'body' => $body];
+
+                if ($url === 'https://tsa.local/token') {
+                    $this->tokenRequests++;
+
+                    return new HttpResponse($this->oauthStatus, $this->oauthBody);
+                }
+
+                $query = $this->dir.'/request-'.count($this->calls).'.tsq';
+                $reply = $this->dir.'/request-'.count($this->calls).'.tsr';
+                file_put_contents($query, $body);
+                exec(sprintf(
+                    'openssl ts -reply -config %s -queryfile %s -out %s 2>&1',
+                    escapeshellarg($this->dir.'/tsa.cnf'),
+                    escapeshellarg($query),
+                    escapeshellarg($reply),
+                ), $output, $exitCode);
+                if ($exitCode !== 0) {
+                    throw new \RuntimeException(implode("\n", $output));
+                }
+
+                $this->lastReply = (string) file_get_contents($reply);
+
+                return new HttpResponse($this->tsaStatus, $this->lastReply);
+            }
+        };
+    }
+
+    /**
+     * The timeStampToken of a TimeStampResp, cut out with `openssl ts -reply -token_out` for comparison.
+     */
+    private function tokenOf(string $reply): string
+    {
+        $in = self::$dir.'/compare.tsr';
+        $out = self::$dir.'/compare.tst';
+        file_put_contents($in, $reply);
+        self::shell(sprintf('openssl ts -reply -in %s -token_out -out %s', escapeshellarg($in), escapeshellarg($out)));
+
+        return (string) file_get_contents($out);
+    }
+
+    private static function shell(string $script): void
+    {
+        exec('{ set -e; '.$script."\n} 2>&1", $output, $exitCode);
+        if ($exitCode !== 0) {
+            self::fail(implode("\n", $output));
+        }
     }
 }
