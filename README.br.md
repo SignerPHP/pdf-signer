@@ -744,6 +744,7 @@ php bin/signer-sign --help
 
 - A assinatura digital cobre bytes específicos do PDF (`ByteRange`). Por isso, operações que regravem o arquivo devem ocorrer antes da assinatura.
 - A validação verifica integridade (`ByteRange`) e validade criptográfica CMS/PKCS#7 com OpenSSL. Opcionalmente, pode validar cadeia de confiança via trust store (`enableTrustChainValidation(...)`) e política Brasil (`withBrazilPolicy(...)`).
+- A validação da cadeia de confiança é feita em PHP nativo (sem o `openssl` de linha de comando) e cobre um subconjunto da RFC 5280: encadeamento de emissores, assinaturas, validade na data de referência, basicConstraints/pathLen de CA, keyCertSign e algoritmos/chaves fracos. Ela rejeita o que não aplica (extensões críticas desconhecidas, restrições de nomes e de políticas) e não verifica revogação; entradas `TRUSTED CERTIFICATE` do OpenSSL no trust store são ignoradas.
 - Perfis PAdES:
   - Baseline-B: `SubFilter /ETSI.CAdES.detached`
   - Baseline-T: Baseline-B + RFC3161

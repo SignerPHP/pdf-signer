@@ -19,8 +19,11 @@ final readonly class X509PathCertificate
     private const OID_AUTHORITY_KEY_IDENTIFIER = '2.5.29.35';
 
     /**
-     * Extensions this validator understands or that OpenSSL accepts without enforcing them here
-     * (alternative names, policies, distribution points, authority information access).
+     * Extensions that may be critical without changing the path validation outcome here: the ones
+     * this class decodes, names and distribution/access points, certificatePolicies (no initial
+     * explicit policy is required and policy constraints are rejected below, so RFC 5280 policy
+     * processing cannot invalidate the path) and extKeyUsage (not part of RFC 5280 path
+     * processing; usage purposes, such as RFC 3161 timeStamping, are checked by the callers).
      */
     private const RECOGNIZED_EXTENSIONS = [
         self::OID_SUBJECT_KEY_IDENTIFIER,
@@ -28,19 +31,42 @@ final readonly class X509PathCertificate
         '2.5.29.17', // subjectAltName
         '2.5.29.18', // issuerAltName
         self::OID_BASIC_CONSTRAINTS,
-        '2.5.29.30', // nameConstraints
         '2.5.29.31', // cRLDistributionPoints
         '2.5.29.32', // certificatePolicies
-        '2.5.29.33', // policyMappings
         self::OID_AUTHORITY_KEY_IDENTIFIER,
-        '2.5.29.36', // policyConstraints
         '2.5.29.37', // extKeyUsage
-        '2.5.29.54', // inhibitAnyPolicy
         '1.3.6.1.5.5.7.1.1', // authorityInfoAccess
     ];
 
     /**
+     * Constraints on the certificates below a CA that this validator does not enforce. Ignoring
+     * them would accept paths they forbid, so a certificate carrying one is rejected whether or
+     * not the extension is marked critical (fail closed).
+     */
+    private const UNSUPPORTED_CONSTRAINTS = [
+        '2.5.29.30' => 'nameConstraints',
+        '2.5.29.33' => 'policyMappings',
+        '2.5.29.36' => 'policyConstraints',
+        '2.5.29.54' => 'inhibitAnyPolicy',
+    ];
+
+    /**
+     * Signature algorithms with a digest below OpenSSL's default security level (80 bits):
+     * MD2, MD4, MD5 and SHA-1 with RSA, DSA or ECDSA.
+     */
+    private const WEAK_SIGNATURE_ALGORITHMS = [
+        '1.2.840.113549.1.1.2',
+        '1.2.840.113549.1.1.3',
+        '1.2.840.113549.1.1.4',
+        '1.2.840.113549.1.1.5',
+        '1.3.14.3.2.29',
+        '1.2.840.10040.4.3',
+        '1.2.840.10045.4.1',
+    ];
+
+    /**
      * @param  list<string>  $unrecognizedCriticalExtensions  dotted OIDs
+     * @param  list<string>  $unsupportedConstraints  names of constraint extensions that are not enforced
      */
     public function __construct(
         public string $der,
@@ -57,6 +83,8 @@ final readonly class X509PathCertificate
         public ?string $subjectKeyIdentifier,
         public ?string $authorityKeyIdentifier,
         public array $unrecognizedCriticalExtensions,
+        public array $unsupportedConstraints = [],
+        public string $signatureAlgorithmOid = '',
     ) {}
 
     /**
@@ -69,8 +97,10 @@ final readonly class X509PathCertificate
             if ($tag !== 0x30 || $end !== strlen($der)) {
                 return null;
             }
-            [$tbsTag, $tbs] = Der::readTlvStrict($certificate);
-            if ($tbsTag !== 0x30) {
+            [$tbsTag, $tbs, $tbsEnd] = Der::readTlvStrict($certificate);
+            [$algorithmTag, $algorithm] = Der::readTlvStrict($certificate, $tbsEnd);
+            [$oidTag, $signatureAlgorithm] = Der::readTlvStrict($algorithm);
+            if ($tbsTag !== 0x30 || $algorithmTag !== 0x30 || $oidTag !== 0x06) {
                 return null;
             }
 
@@ -120,6 +150,7 @@ final readonly class X509PathCertificate
         $subjectKeyIdentifier = null;
         $authorityKeyIdentifier = null;
         $unrecognized = [];
+        $unsupported = [];
         try {
             foreach ($extensions as [$oid, $critical, $value]) {
                 match ($oid) {
@@ -129,7 +160,9 @@ final readonly class X509PathCertificate
                     self::OID_AUTHORITY_KEY_IDENTIFIER => $authorityKeyIdentifier = self::authorityKeyIdentifier($value),
                     default => null,
                 };
-                if ($critical && ! in_array($oid, self::RECOGNIZED_EXTENSIONS, true)) {
+                if (isset(self::UNSUPPORTED_CONSTRAINTS[$oid])) {
+                    $unsupported[] = self::UNSUPPORTED_CONSTRAINTS[$oid];
+                } elseif ($critical && ! in_array($oid, self::RECOGNIZED_EXTENSIONS, true)) {
                     $unrecognized[] = $oid;
                 }
             }
@@ -152,6 +185,8 @@ final readonly class X509PathCertificate
             subjectKeyIdentifier: $subjectKeyIdentifier,
             authorityKeyIdentifier: $authorityKeyIdentifier,
             unrecognizedCriticalExtensions: $unrecognized,
+            unsupportedConstraints: $unsupported,
+            signatureAlgorithmOid: self::dottedOid($signatureAlgorithm),
         );
     }
 
@@ -167,6 +202,32 @@ final readonly class X509PathCertificate
     {
         return $this->subjectDer === $other->subjectDer
             && $this->subjectPublicKeyInfoDer === $other->subjectPublicKeyInfoDer;
+    }
+
+    public function hasWeakSignatureAlgorithm(): bool
+    {
+        return in_array($this->signatureAlgorithmOid, self::WEAK_SIGNATURE_ALGORITHMS, true);
+    }
+
+    /**
+     * Whether the public key is below OpenSSL's default security level (80 bits): RSA, DSA or DH
+     * under 1024 bits, EC under 160 bits. Other key types (EdDSA) and unreadable keys are left to the signature check.
+     */
+    public function hasWeakPublicKey(): bool
+    {
+        $key = @openssl_pkey_get_public($this->pem);
+        $details = $key === false ? false : openssl_pkey_get_details($key);
+        if (! is_array($details)) {
+            return false;
+        }
+
+        $bits = (int) ($details['bits'] ?? 0);
+
+        return match ($details['type'] ?? null) {
+            OPENSSL_KEYTYPE_RSA, OPENSSL_KEYTYPE_DSA, OPENSSL_KEYTYPE_DH => $bits < 1024,
+            OPENSSL_KEYTYPE_EC => $bits < 160,
+            default => false,
+        };
     }
 
     public function subjectName(): string
@@ -190,7 +251,9 @@ final readonly class X509PathCertificate
 
         $time = \DateTimeImmutable::createFromFormat('!YmdHis', $value, new \DateTimeZone('UTC'));
 
-        return $time === false ? null : $time->getTimestamp();
+        // createFromFormat() silently rolls invalid dates over (Feb 30 -> Mar 2): reject anything
+        // that does not read back as exactly the encoded value.
+        return $time !== false && $time->format('YmdHis') === $value ? $time->getTimestamp() : null;
     }
 
     /**

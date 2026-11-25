@@ -43,7 +43,10 @@ final class X509PathValidatorTest extends TestCase
             '[v3_not_ca]', 'basicConstraints = critical, CA:FALSE', 'keyUsage = critical, digitalSignature, keyCertSign', ...$keyIds,
             '[v3_leaf]', ...$leaf, ...$keyIds,
             '[v3_leaf_nokeyid]', ...$leaf, ...$noKeyIds,
-            '[v3_leaf_critical]', ...$leaf, ...$keyIds, '1.2.3.4 = critical, ASN1:NULL', '',
+            '[v3_leaf_critical]', ...$leaf, ...$keyIds, '1.2.3.4 = critical, ASN1:NULL',
+            '[v3_ca_name_constraints]', ...$ca, ...$keyIds, 'nameConstraints = critical, permitted;DNS:example.com',
+            '[v3_ca_policy_constraints]', ...$ca, ...$keyIds, 'policyConstraints = critical, requireExplicitPolicy:0',
+            '[v3_leaf_policies]', ...$leaf, ...$keyIds, 'certificatePolicies = critical, 2.16.76.1.2.1.1', 'extendedKeyUsage = critical, emailProtection', '',
         ]));
 
         $long = ['20150101000000Z', '20450101000000Z'];
@@ -79,6 +82,18 @@ final class X509PathValidatorTest extends TestCase
 
         self::issue('leaf-twin-b', 'Leaf Twin B', 'twin-b', 'v3_leaf_nokeyid', ...$long);
         self::issue('leaf-twin-c', 'Leaf Twin C', 'twin-c', 'v3_leaf', ...$long);
+
+        self::issue('name-constrained', 'Name Constrained CA', 'root', 'v3_ca_name_constraints', ...$long);
+        self::issue('leaf-name-constrained', 'Leaf Under Name Constraints', 'name-constrained', 'v3_leaf', ...$long);
+        self::issue('policy-constrained', 'Policy Constrained CA', 'root', 'v3_ca_policy_constraints', ...$long);
+        self::issue('leaf-policy-constrained', 'Leaf Under Policy Constraints', 'policy-constrained', 'v3_leaf', ...$long);
+        self::issue('leaf-policies', 'Leaf With Critical Policies', 'int', 'v3_leaf_policies', ...$long);
+
+        self::issue('leaf-sha1', 'Leaf SHA1', 'int', 'v3_leaf', ...[...$long, 'ec -pkeyopt ec_paramgen_curve:prime256v1', 'sha1']);
+        self::issue('leaf-rsa512', 'Leaf RSA 512', 'int', 'v3_leaf', ...[...$long, 'rsa:512']);
+        self::issue('leaf-ed25519', 'Leaf Ed25519', 'int', 'v3_leaf', ...[...$long, 'ed25519']);
+        self::issue('int-rsa512', 'Weak Key CA', 'root', 'v3_ca', ...[...$long, 'rsa:512']);
+        self::issue('leaf-weak-ca', 'Leaf Under Weak Key CA', 'int-rsa512', 'v3_leaf', ...$long);
 
         foreach (glob(self::$dir.'/*.crt') ?: [] as $file) {
             $der = X509PathValidator::certificatesFromBundle((string) file_get_contents($file));
@@ -116,6 +131,8 @@ final class X509PathValidatorTest extends TestCase
             'pathlen 0 issuer signing a leaf' => ['leaf-pathlen-ok', ['pathlen0'], ['root']],
             'same issuer name, other key tried first' => ['leaf-twin-b', [], ['twin-a', 'twin-b']],
             'same issuer name, other key skipped by key identifier' => ['leaf-twin-c', [], ['twin-d', 'twin-c']],
+            'critical certificatePolicies and extKeyUsage' => ['leaf-policies', ['int'], ['root']],
+            'Ed25519 leaf key' => ['leaf-ed25519', ['int'], ['root']],
         ];
     }
 
@@ -147,6 +164,11 @@ final class X509PathValidatorTest extends TestCase
             'path length constraint' => ['leaf-pathlen', ['pathlen0-sub', 'pathlen0'], ['root'], 'path length constraint exceeded (depth 2: /CN=Pathlen Zero)'],
             'unknown critical extension' => ['leaf-critical', ['int'], ['root'], 'unhandled critical extension (depth 0: /CN=Path Leaf Critical)'],
             'same issuer name, wrong key only' => ['leaf-twin-b', [], ['twin-a'], 'certificate signature failure (depth 0: /CN=Leaf Twin B)'],
+            'name constraints are not enforced, so rejected' => ['leaf-name-constrained', ['name-constrained'], ['root'], 'unsupported nameConstraints extension (depth 1: /CN=Name Constrained CA)'],
+            'policy constraints are not enforced, so rejected' => ['leaf-policy-constrained', ['policy-constrained'], ['root'], 'unsupported policyConstraints extension (depth 1: /CN=Policy Constrained CA)'],
+            'SHA-1 signature' => ['leaf-sha1', ['int'], ['root'], 'CA signature digest algorithm too weak (depth 0: /CN=Leaf SHA1)'],
+            'RSA 512 leaf key' => ['leaf-rsa512', ['int'], ['root'], 'EE certificate key too weak (depth 0: /CN=Leaf RSA 512)'],
+            'RSA 512 CA key' => ['leaf-weak-ca', ['int-rsa512'], ['root'], 'CA certificate key too weak (depth 1: /CN=Weak Key CA)'],
         ];
     }
 
@@ -189,14 +211,20 @@ final class X509PathValidatorTest extends TestCase
         self::assertSame([$root, self::$certs['int']], X509PathValidator::certificatesFromBundle(
             "comment\n".$pem('CERTIFICATE', $root).$pem('CERTIFICATE', self::$certs['int']),
         ));
-        self::assertSame([$root], X509PathValidator::certificatesFromBundle($pem('TRUSTED CERTIFICATE', $root."\x30\x00")));
+        // Auxiliary trust settings are not interpreted, so such entries are never anchors.
+        self::assertSame([self::$certs['int']], X509PathValidator::certificatesFromBundle(
+            $pem('TRUSTED CERTIFICATE', $root."\x30\x00").$pem('CERTIFICATE', self::$certs['int']),
+        ));
+        self::assertSame(
+            'Trust store does not contain any readable certificate.',
+            (new X509PathValidator)->validate(self::$certs['leaf'], [self::$certs['int']], X509PathValidator::certificatesFromBundle($pem('TRUSTED CERTIFICATE', $root)), new \DateTimeImmutable),
+        );
         self::assertSame([$root], X509PathValidator::certificatesFromBundle($pem('X509 CERTIFICATE', $root)));
         self::assertSame([$root], X509PathValidator::certificatesFromBundle($root));
         self::assertSame([], X509PathValidator::certificatesFromBundle('not a certificate'));
         self::assertSame([], X509PathValidator::certificatesFromBundle(
             "-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----\n"
-            ."-----BEGIN CERTIFICATE-----\n!!!\n-----END CERTIFICATE-----\n"
-            .$pem('CERTIFICATE', "\x30\x85"),
+            ."-----BEGIN CERTIFICATE-----\n!!!\n-----END CERTIFICATE-----\n",
         ));
     }
 
@@ -221,11 +249,19 @@ final class X509PathValidatorTest extends TestCase
             SH);
     }
 
-    private static function issue(string $file, string $cn, string $issuer, string $extensions, string $notBefore, string $notAfter): void
-    {
+    private static function issue(
+        string $file,
+        string $cn,
+        string $issuer,
+        string $extensions,
+        string $notBefore,
+        string $notAfter,
+        string $newKey = 'ec -pkeyopt ec_paramgen_curve:prime256v1',
+        string $digest = 'sha256',
+    ): void {
         self::shell(<<<SH
-            openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout $file.key -out $file.csr -subj "/CN=$cn" -config ca.cnf
-            openssl ca -batch -config ca.cnf -cert $issuer.crt -keyfile $issuer.key -in $file.csr -out $file.crt -extensions $extensions -startdate $notBefore -enddate $notAfter -notext
+            openssl req -new -newkey $newKey -nodes -keyout $file.key -out $file.csr -subj "/CN=$cn" -config ca.cnf
+            openssl ca -batch -config ca.cnf -cert $issuer.crt -keyfile $issuer.key -md $digest -in $file.csr -out $file.crt -extensions $extensions -startdate $notBefore -enddate $notAfter -notext
             SH);
     }
 

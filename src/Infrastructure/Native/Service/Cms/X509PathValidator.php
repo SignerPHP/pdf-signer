@@ -5,11 +5,20 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms;
 
 /**
- * Native X.509 certification path validation (RFC 5280 subset) for a signer certificate:
- * builds leaf -> trust anchor from the supplied intermediates (any order, irrelevant ones ignored)
- * and checks every signature, validity period, CA basicConstraints/pathLen and keyCertSign usage
- * at the reference time. Any certificate of the trust store can be the anchor. Revocation is not
- * checked here. Error messages follow OpenSSL's wording ("certificate has expired", ...).
+ * Native X.509 certification path validation for a signer certificate. This is a subset of
+ * RFC 5280 / `X509_verify_cert()`, not a full replacement for it:
+ *
+ * - builds leaf -> trust anchor from the supplied intermediates (any order, irrelevant ones ignored);
+ * - checks every signature, validity period at the reference time, CA basicConstraints/pathLen and
+ *   keyCertSign usage, and rejects MD5/SHA-1 signatures and keys under 80 bits of security
+ *   (OpenSSL's default security level);
+ * - fails closed on what it does not enforce: unknown critical extensions, and nameConstraints,
+ *   policyMappings, policyConstraints or inhibitAnyPolicy anywhere in the path;
+ * - any certificate of the trust store can be the anchor (no self-signed root required).
+ *
+ * Not done here: revocation, policy processing with a required explicit policy, and purpose
+ * (extKeyUsage) checks, which callers make for their own purpose. Error messages follow
+ * OpenSSL's wording ("certificate has expired", ...).
  */
 final readonly class X509PathValidator
 {
@@ -38,7 +47,8 @@ final readonly class X509PathValidator
         $untrusted = self::decodeAll($untrustedDer);
         $time = $validationTime->getTimestamp();
 
-        $problem = $this->certificateProblem($leaf, $time);
+        $problem = $this->certificateProblem($leaf, $time)
+            ?? ($leaf->hasWeakPublicKey() ? 'EE certificate key too weak' : null);
         if ($problem !== null) {
             return self::describe($problem, 0, $leaf);
         }
@@ -61,12 +71,14 @@ final readonly class X509PathValidator
 
     /**
      * Certificates of a PEM trust bundle (OpenSSL CAfile format), or of a single DER file, as DER.
+     * OpenSSL `TRUSTED CERTIFICATE` blocks are skipped: their auxiliary trust/reject settings are
+     * not interpreted, and dropping them would trust a certificate the store may restrict.
      *
      * @return list<string>
      */
     public static function certificatesFromBundle(string $contents): array
     {
-        if (preg_match_all('/-----BEGIN (?:X509 |TRUSTED )?CERTIFICATE-----(.*?)-----END (?:X509 |TRUSTED )?CERTIFICATE-----/s', $contents, $matches) < 1) {
+        if (preg_match_all('/-----BEGIN (?:X509 )?CERTIFICATE-----(.*?)-----END (?:X509 )?CERTIFICATE-----/s', $contents, $matches) < 1) {
             return str_starts_with($contents, "\x30") ? [$contents] : [];
         }
 
@@ -76,13 +88,7 @@ final readonly class X509PathValidator
             if ($der === false || $der === '') {
                 continue;
             }
-            try {
-                // A TRUSTED CERTIFICATE carries auxiliary trust data after the certificate itself.
-                [, , $end] = Der::readTlvStrict($der);
-            } catch (\Throwable) {
-                continue;
-            }
-            $certificates[] = substr($der, 0, $end);
+            $certificates[] = $der;
         }
 
         return $certificates;
@@ -114,6 +120,11 @@ final readonly class X509PathValidator
         foreach ($candidates as [$issuer, $isAnchor]) {
             if (openssl_x509_verify($current->pem, $issuer->pem) !== 1) {
                 $errors[] = ['certificate signature failure', $depth, $current];
+
+                continue;
+            }
+            if ($current->hasWeakSignatureAlgorithm()) {
+                $errors[] = ['CA signature digest algorithm too weak', $depth, $current];
 
                 continue;
             }
@@ -187,6 +198,9 @@ final readonly class X509PathValidator
         if (! $isCa) {
             return 'invalid CA certificate';
         }
+        if ($issuer->hasWeakPublicKey()) {
+            return 'CA certificate key too weak';
+        }
         if ($issuer->keyCertSign === false) {
             return 'key usage does not include certificate signing';
         }
@@ -214,6 +228,9 @@ final readonly class X509PathValidator
         }
         if ($certificate->unrecognizedCriticalExtensions !== []) {
             return 'unhandled critical extension';
+        }
+        if ($certificate->unsupportedConstraints !== []) {
+            return 'unsupported '.implode(', ', $certificate->unsupportedConstraints).' extension';
         }
 
         return null;

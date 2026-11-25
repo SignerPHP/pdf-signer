@@ -38,6 +38,25 @@ final class X509PathCertificateTest extends TestCase
         self::assertSame(gmmktime(0, 0, 0, 1, 1, 1999), $certificate->notBefore);
         self::assertSame(gmmktime(12, 30, 0, 6, 1, 2051), $certificate->notAfter);
         self::assertTrue($certificate->isSelfIssued());
+        self::assertSame([], $certificate->unsupportedConstraints);
+        self::assertSame('1.2.840.113549.1.1.11', $certificate->signatureAlgorithmOid);
+        self::assertFalse($certificate->hasWeakSignatureAlgorithm());
+        self::assertFalse($certificate->hasWeakPublicKey(), 'an unreadable key is left to the signature check');
+    }
+
+    public function test_flags_unenforced_constraints_even_when_not_critical(): void
+    {
+        $certificate = X509PathCertificate::fromDer(self::certificate(extensions: [
+            self::extension('2.5.29.30', Der::sequence('')),
+            self::extension('2.5.29.33', Der::sequence(''), critical: true),
+            self::extension('2.5.29.36', Der::sequence('')),
+            self::extension('2.5.29.54', "\x02\x01\x00", critical: true),
+        ], signatureAlgorithm: '1.2.840.113549.1.1.5'));
+
+        self::assertNotNull($certificate);
+        self::assertSame(['nameConstraints', 'policyMappings', 'policyConstraints', 'inhibitAnyPolicy'], $certificate->unsupportedConstraints);
+        self::assertSame([], $certificate->unrecognizedCriticalExtensions);
+        self::assertTrue($certificate->hasWeakSignatureAlgorithm());
     }
 
     public function test_defaults_when_extensions_are_absent_or_minimal(): void
@@ -85,6 +104,10 @@ final class X509PathCertificateTest extends TestCase
             'tbs not a sequence' => [Der::sequence(Der::octetString('x'))],
             'serial not an integer' => [self::certificate(serial: Der::octetString("\x01"))],
             'bad UTCTime' => [self::certificate(notBefore: Der::tlv(0x17, '99010100000Z'))],
+            'February 30 (no silent roll-over)' => [self::certificate(notBefore: Der::tlv(0x17, '250230000000Z'))],
+            'hour 24' => [self::certificate(notAfter: Der::tlv(0x18, '20510601240000Z'))],
+            'signature algorithm not a sequence' => [self::certificate(outerAlgorithm: Der::null())],
+            'signature algorithm without OID' => [self::certificate(outerAlgorithm: Der::sequence(Der::null()))],
             'unknown time type' => [self::certificate(notAfter: Der::tlv(0x04, '20510601123000Z'))],
             'extension without OID' => [self::certificate(extensions: [Der::sequence(Der::octetString('x'))])],
             'extension value not an OCTET STRING' => [self::certificate(extensions: [Der::sequence(Der::objectIdentifier('2.5.29.15').Der::null())])],
@@ -103,6 +126,8 @@ final class X509PathCertificateTest extends TestCase
         ?string $notAfter = null,
         array $extensions = [],
         string $issuer = 'Test',
+        string $signatureAlgorithm = '1.2.840.113549.1.1.11',
+        ?string $outerAlgorithm = null,
     ): string {
         $name = static fn (string $cn): string => Der::sequence(Der::set(Der::sequence(Der::objectIdentifier('2.5.4.3').Der::tlv(0x0C, $cn))));
         $tbs = ($version !== null ? Der::contextSpecific(0, Der::tlv(0x02, chr($version))) : '')
@@ -114,7 +139,7 @@ final class X509PathCertificateTest extends TestCase
             .Der::sequence(Der::algorithmIdentifier('1.2.840.113549.1.1.1').Der::tlv(0x03, "\x00\x01"))
             .($extensions !== [] ? Der::contextSpecific(3, Der::sequence(implode('', $extensions))) : '');
 
-        return Der::sequence(Der::sequence($tbs).Der::algorithmIdentifier('1.2.840.113549.1.1.11').Der::tlv(0x03, "\x00\x00"));
+        return Der::sequence(Der::sequence($tbs).($outerAlgorithm ?? Der::algorithmIdentifier($signatureAlgorithm)).Der::tlv(0x03, "\x00\x00"));
     }
 
     private static function extension(string $oid, string $value, bool $critical = false, bool $explicitFalse = false): string
