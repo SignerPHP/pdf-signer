@@ -9,6 +9,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCertificateCollectorInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimeAwareSignatureTrustVerifierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\X509PathValidator;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignatureTrustVerification;
 
 final readonly class OpenSslSignatureTrustVerifier implements TimeAwareSignatureTrustVerifierInterface
@@ -16,7 +17,11 @@ final readonly class OpenSslSignatureTrustVerifier implements TimeAwareSignature
     public function __construct(
         private SignatureCertificateCollectorInterface $certificateCollector = new OpenSslCmsCertificateCollector,
         private IcpBrasilTrustAnchorBundleProvider $trustAnchorBundleProvider = new IcpBrasilTrustAnchorBundleProvider,
-        private ProcessRunnerInterface $processRunner = new ShellProcessRunner,
+        /**
+         * @deprecated Unused since certificate chain validation is native PHP; kept for constructor compatibility.
+         */
+        private ?ProcessRunnerInterface $processRunner = null,
+        private X509PathValidator $pathValidator = new X509PathValidator,
     ) {}
 
     public function verify(string $signatureHex, SignatureValidationOptionsDto $options): SignatureTrustVerification
@@ -25,7 +30,7 @@ final readonly class OpenSslSignatureTrustVerifier implements TimeAwareSignature
     }
 
     /**
-     * Validates the chain at $validationTime (openssl verify -attime) instead of now.
+     * Validates the chain at $validationTime (e.g. a timestamp's genTime) instead of now.
      */
     public function verifyAt(string $signatureHex, SignatureValidationOptionsDto $options, \DateTimeImmutable $validationTime): SignatureTrustVerification
     {
@@ -53,63 +58,20 @@ final readonly class OpenSslSignatureTrustVerifier implements TimeAwareSignature
             return new SignatureTrustVerification(false, 'Could not identify signer certificate from CMS payload.');
         }
 
-        $leafPem = $this->derToPem($certificatesDer[$signerIndex]);
-        if ($leafPem === null) {
-            return new SignatureTrustVerification(false, 'Could not decode signer certificate from CMS payload.');
-        }
+        $trustStoreContents = @file_get_contents($trustStore);
+        $trustedDer = is_string($trustStoreContents) ? X509PathValidator::certificatesFromBundle($trustStoreContents) : [];
 
-        $chainPem = '';
-        $others = $certificatesDer;
-        unset($others[$signerIndex]);
-        foreach ($others as $certDer) {
-            $pem = $this->derToPem($certDer);
-            if ($pem !== null) {
-                $chainPem .= $pem;
-            }
-        }
+        $untrustedDer = $certificatesDer;
+        unset($untrustedDer[$signerIndex]);
 
-        $tmpDir = sys_get_temp_dir();
-        $leafFile = tempnam($tmpDir, 'pdf-sig-leaf');
-        if ($leafFile === false) {
-            return new SignatureTrustVerification(false, 'Could not create temporary file for signer certificate.');
-        }
+        $error = $this->pathValidator->validate(
+            $certificatesDer[$signerIndex],
+            $untrustedDer,
+            $trustedDer,
+            $validationTime ?? new \DateTimeImmutable,
+        );
 
-        file_put_contents($leafFile, $leafPem);
-
-        $chainFile = null;
-        if ($chainPem !== '') {
-            $chainFile = tempnam($tmpDir, 'pdf-sig-chain');
-            if ($chainFile !== false) {
-                file_put_contents($chainFile, $chainPem);
-            }
-        }
-
-        try {
-            $command = sprintf(
-                'openssl verify -CAfile %s%s%s %s',
-                escapeshellarg($trustStore),
-                $chainFile !== null ? ' -untrusted '.escapeshellarg($chainFile) : '',
-                $validationTime !== null ? ' -attime '.$validationTime->getTimestamp() : '',
-                escapeshellarg($leafFile),
-            );
-
-            $result = $this->processRunner->run($command);
-            if (! $result->succeeded()) {
-                $message = trim($result->outputAsString());
-                if ($message === '') {
-                    $message = 'OpenSSL verify failed for signer certificate chain.';
-                }
-
-                return new SignatureTrustVerification(false, $message);
-            }
-
-            return new SignatureTrustVerification(true);
-        } finally {
-            @unlink($leafFile);
-            if ($chainFile !== null) {
-                @unlink($chainFile);
-            }
-        }
+        return new SignatureTrustVerification($error === null, $error);
     }
 
     private function resolveTrustStore(SignatureValidationOptionsDto $options): ?string
