@@ -621,6 +621,18 @@ $signedProtectedPdf = Signer::signer()
 file_put_contents('/tmp/output-protected-signed.pdf', $signedProtectedPdf);
 ```
 
+The signature revision of a protected PDF is encrypted with the document key, like the rest of the file (only the signature `/Contents` stays in clear, as ISO 32000-2 requires). The same applies when you sign a PDF that was already protected, for example a second signature: a PDF without a user password is opened automatically; otherwise pass its user or owner password.
+
+```php
+$secondSignature = Signer::signer()
+ ->withPdfContent(file_get_contents('/tmp/output-protected-signed.pdf'))
+ ->withPdfPassword('user-or-owner-password') // not needed when the PDF has no user password
+ ->withCertificatePath('/tmp/other-certificate.pfx', 'secret-password')
+ ->sign();
+```
+
+Encrypted inputs protected with AES-256 (R6), AES-128 (R4) or RC4 (R2/R3) are supported.
+
 ### 9) Validate digital signatures in a PDF
 
 ```php

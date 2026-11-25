@@ -489,6 +489,18 @@ $signedProtectedPdf = Signer::signer()
 file_put_contents('/tmp/output-protected-signed.pdf', $signedProtectedPdf);
 ```
 
+A revisão da assinatura de um PDF protegido é cifrada com a chave do documento, como o restante do arquivo (só o `/Contents` da assinatura fica em claro, como exige a ISO 32000-2). O mesmo vale ao assinar um PDF que já estava protegido, por exemplo numa segunda assinatura: um PDF sem senha de usuário é aberto automaticamente; caso contrário, informe a senha de usuário ou de dono.
+
+```php
+$segundaAssinatura = Signer::signer()
+ ->withPdfContent(file_get_contents('/tmp/saida-protegida-assinada.pdf'))
+ ->withPdfPassword('senha-de-usuario-ou-de-dono') // dispensável quando o PDF não tem senha de usuário
+ ->withCertificatePath('/tmp/outro-certificado.pfx', 'senha-secreta')
+ ->sign();
+```
+
+São aceitos PDFs protegidos com AES-256 (R6), AES-128 (R4) ou RC4 (R2/R3).
+
 ### 9) Validar assinaturas digitais de um PDF
 
 ```php
