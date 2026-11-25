@@ -199,7 +199,10 @@ final class EncryptedPdfSigningTest extends TestCase
             return;
         }
 
-        $file = (string) tempnam(sys_get_temp_dir(), 'enc-signed');
+        // .pdf: Ubuntu's AppArmor profile for qpdf refuses files without a PDF or JSON extension.
+        $placeholder = (string) tempnam(sys_get_temp_dir(), 'enc-signed');
+        $file = $placeholder.'.pdf';
+        rename($placeholder, $file);
         file_put_contents($file, $pdf);
         try {
             exec('qpdf --password='.escapeshellarg($password).' --check '.escapeshellarg($file).' 2>&1', $check, $code);

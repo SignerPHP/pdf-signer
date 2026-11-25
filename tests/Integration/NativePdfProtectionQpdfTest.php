@@ -231,9 +231,15 @@ final class NativePdfProtectionQpdfTest extends TestCase
         return [$exitCode, implode("\n", $output)];
     }
 
+    /**
+     * The file name ends in .pdf because Ubuntu's AppArmor profile for qpdf only lets it open files with
+     * a PDF or JSON extension (tempnam() names have none, and qpdf fails with "Permission denied").
+     */
     private function tempFile(string $content): string
     {
-        $file = (string) tempnam(sys_get_temp_dir(), 'native-protection-');
+        $placeholder = (string) tempnam(sys_get_temp_dir(), 'native-protection-');
+        $file = $placeholder.'.pdf';
+        rename($placeholder, $file);
         file_put_contents($file, $content);
         $this->tempFiles[] = $file;
 
