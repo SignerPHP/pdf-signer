@@ -23,6 +23,10 @@ final class NativePdfProtectionQpdfTest extends TestCase
     protected function setUp(): void
     {
         if (trim((string) shell_exec('command -v qpdf 2>/dev/null')) === '') {
+            // CI installs qpdf: there the interoperability check must run, never be skipped.
+            if (getenv('CI') !== false && getenv('CI') !== '') {
+                self::fail('qpdf is required in CI to check native PDF protection.');
+            }
             self::markTestSkipped('qpdf is not installed.');
         }
     }
