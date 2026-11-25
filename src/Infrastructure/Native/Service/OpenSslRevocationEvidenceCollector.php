@@ -7,9 +7,22 @@ namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureRevocationEvidenceCollectorInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspRequest;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspResponse;
 
+/**
+ * Collects CRLs and OCSP responses for every certificate of a signature chain, to be embedded
+ * in the DSS (PAdES LT/LTA). OCSP requests are built and sent natively; the responses are
+ * stored as received (validators verify them), as long as they are successful basic responses
+ * answering for the requested certificate.
+ */
 final readonly class OpenSslRevocationEvidenceCollector implements SignatureRevocationEvidenceCollectorInterface
 {
+    private const OCSP_NETWORK_TIMEOUT_SECONDS = 10;
+
+    /**
+     * @param  ProcessRunnerInterface  $processRunner  @deprecated unused since OCSP is handled natively; kept for constructor compatibility
+     */
     public function __construct(
         private X509ExtensionUrlExtractor $urlExtractor = new X509ExtensionUrlExtractor,
         private HttpClientInterface $httpClient = new CurlHttpClient,
@@ -104,80 +117,34 @@ final readonly class OpenSslRevocationEvidenceCollector implements SignatureRevo
     }
 
     /**
+     * @param  array<int, string>  $issuerCandidatesDer
      * @param  array<int, string>  $urls
      * @return array<int, string>
      */
     private function collectOcspResponses(string $certDer, array $issuerCandidatesDer, array $urls): array
     {
-        if ($issuerCandidatesDer === [] || $urls === []) {
-            return [];
-        }
-
-        $tmpDir = sys_get_temp_dir();
         $certPem = $this->derToPem($certDer);
-        if ($certPem === null) {
+        if ($certPem === null || $urls === []) {
             return [];
         }
-
-        $certFile = tempnam($tmpDir, 'ocsp-cert');
-        if ($certFile === false) {
-            return [];
-        }
-
-        file_put_contents($certFile, $certPem);
 
         $responses = [];
-        try {
-            foreach ($issuerCandidatesDer as $issuerDer) {
-                $issuerPem = $this->derToPem($issuerDer);
-                if ($issuerPem === null) {
-                    continue;
-                }
+        foreach ($issuerCandidatesDer as $issuerDer) {
+            $issuerPem = (string) $this->derToPem($issuerDer);
+            $request = @openssl_x509_verify($certPem, $issuerPem) === 1
+                ? OcspRequest::forCertificate($certDer, $issuerDer)
+                : null;
+            if ($request === null) {
+                continue;
+            }
 
-                $issuerFile = tempnam($tmpDir, 'ocsp-issuer');
-                if ($issuerFile === false) {
-                    continue;
-                }
-
-                file_put_contents($issuerFile, $issuerPem);
-
-                try {
-                    foreach ($urls as $url) {
-                        $respFile = tempnam($tmpDir, 'ocsp-resp');
-                        if ($respFile === false) {
-                            continue;
-                        }
-
-                        try {
-                            $command = sprintf(
-                                'openssl ocsp -issuer %s -cert %s -url %s -respout %s -noverify -no_nonce',
-                                escapeshellarg($issuerFile),
-                                escapeshellarg($certFile),
-                                escapeshellarg($url),
-                                escapeshellarg($respFile),
-                            );
-
-                            $result = $this->processRunner->run($command);
-                            if (! $result->succeeded()) {
-                                continue;
-                            }
-
-                            $respDer = @file_get_contents($respFile);
-                            if ($respDer === false || $respDer === '') {
-                                continue;
-                            }
-
-                            $responses[] = $respDer;
-                        } finally {
-                            @unlink($respFile);
-                        }
-                    }
-                } finally {
-                    @unlink($issuerFile);
+            foreach ($urls as $url) {
+                $body = $request->send($this->httpClient, $url, self::OCSP_NETWORK_TIMEOUT_SECONDS);
+                $response = $body === null ? null : OcspResponse::parse($body);
+                if ($body !== null && $response !== null && $request->findStatus($response) !== null) {
+                    $responses[] = $body;
                 }
             }
-        } finally {
-            @unlink($certFile);
         }
 
         return $this->dedupeBinary($responses);
