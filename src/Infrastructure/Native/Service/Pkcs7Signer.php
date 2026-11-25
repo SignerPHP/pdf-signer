@@ -21,8 +21,8 @@ final class Pkcs7Signer implements ChainAwarePkcs7SignerInterface
 {
     public function __construct(
         private readonly DetachedCmsAssembler $cmsAssembler = new DetachedCmsAssembler,
-        private readonly TimestampTokenProviderInterface $timestampTokenProvider = new OpenSslRfc3161TimestampTokenProvider,
-        private readonly TimestampTokenValidatorInterface $timestampTokenValidator = new OpenSslRfc3161TimestampTokenValidator,
+        private readonly TimestampTokenProviderInterface $timestampTokenProvider = new NativeRfc3161TimestampTokenProvider,
+        private readonly TimestampTokenValidatorInterface $timestampTokenValidator = new NativeRfc3161TimestampTokenValidator,
     ) {}
 
     public function sign(

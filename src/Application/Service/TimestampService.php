@@ -8,12 +8,12 @@ use SignerPHP\PdfSigner\Application\DTO\TimestampConnectionResultDto;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslRfc3161TimestampTokenProvider;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeRfc3161TimestampTokenProvider;
 
 final readonly class TimestampService
 {
     public function __construct(
-        private TimestampTokenProviderInterface $tokenProvider = new OpenSslRfc3161TimestampTokenProvider,
+        private TimestampTokenProviderInterface $tokenProvider = new NativeRfc3161TimestampTokenProvider,
     ) {}
 
     public function requestTokenHex(string $content, TimestampOptionsDto $options): string

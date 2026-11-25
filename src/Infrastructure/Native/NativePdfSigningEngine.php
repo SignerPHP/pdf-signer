@@ -8,9 +8,11 @@ use SignerPHP\PdfSigner\Application\Contract\PdfSigningEngineInterface;
 use SignerPHP\PdfSigner\Application\Contract\SignatureProviderFactoryInterface;
 use SignerPHP\PdfSigner\Application\DTO\LocalSigningContextDto;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\EncryptedSignedBufferBuilderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PdfDocumentPreparerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureFactoryInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignedBufferBuilderInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Encryption\EncryptedPdfDocument;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProviderFactory;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfDocumentPreparer;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureFactory;
@@ -34,6 +36,19 @@ final readonly class NativePdfSigningEngine implements PdfSigningEngineInterface
     {
         try {
             $signingContext = $context->signingContext;
+            $encryptedDocument = $this->openEncrypted($signingContext->pdf->content, $signingContext->options->pdfPassword);
+            if ($encryptedDocument !== null) {
+                if (! $this->signedBufferBuilder instanceof EncryptedSignedBufferBuilderInterface) {
+                    throw new \LogicException('Signing an encrypted PDF requires an encryption-aware signed buffer builder.');
+                }
+
+                $pdfDocument = $this->documentPreparer->prepare($encryptedDocument->plainMirror());
+                $signature = $this->signatureFactory->create($signingContext, $pdfDocument);
+                $signatureProvider = $this->signatureProviderFactory->create($context->verifiedCertificate);
+
+                return (string) $this->signedBufferBuilder->buildEncrypted($encryptedDocument, $pdfDocument, $signature, $signingContext, $signatureProvider);
+            }
+
             $pdfDocument = $this->documentPreparer->prepare($signingContext->pdf->content);
             $signature = $this->signatureFactory->create($signingContext, $pdfDocument);
             $signatureProvider = $this->signatureProviderFactory->create($context->verifiedCertificate);
@@ -45,5 +60,18 @@ final readonly class NativePdfSigningEngine implements PdfSigningEngineInterface
                 previous: $throwable,
             );
         }
+    }
+
+    /**
+     * pdf-core reads PDFs in clear: an encrypted input is signed through its clear mirror, and the
+     * signature revision is appended to it encrypted with the document key.
+     */
+    private function openEncrypted(string $content, ?string $password): ?EncryptedPdfDocument
+    {
+        if (preg_match('/\/Encrypt\b/', $content) !== 1) {
+            return null;
+        }
+
+        return EncryptedPdfDocument::open($content, $password ?? '');
     }
 }

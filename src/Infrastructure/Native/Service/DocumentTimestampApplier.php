@@ -12,16 +12,17 @@ use SignerPHP\PdfCore\SignatureObject;
 use SignerPHP\PdfCore\Xref\Xref;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\DocumentTimestampApplierInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Contract\EncryptedDocumentTimestampApplierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Encryption\EncryptedPdfDocument;
 
-final readonly class DocumentTimestampApplier implements DocumentTimestampApplierInterface
+final readonly class DocumentTimestampApplier implements EncryptedDocumentTimestampApplierInterface
 {
     public function __construct(
         private PdfDocumentPreparer $documentPreparer = new PdfDocumentPreparer,
         private XrefContentResolver $xrefContentResolver = new XrefContentResolver,
         private DocumentTimestampObjectAssembler $timestampAssembler = new DocumentTimestampObjectAssembler,
-        private TimestampTokenProviderInterface $timestampTokenProvider = new OpenSslRfc3161TimestampTokenProvider,
+        private TimestampTokenProviderInterface $timestampTokenProvider = new NativeRfc3161TimestampTokenProvider,
     ) {}
 
     public function apply(string $signedPdfContent, TimestampOptionsDto $options): string
@@ -55,6 +56,36 @@ final readonly class DocumentTimestampApplier implements DocumentTimestampApplie
         $docToXref->data($timestamp->toPdfEntry());
 
         return (string) new Buffer($docToXref->raw().$docFromXref->raw());
+    }
+
+    public function applyToEncrypted(EncryptedPdfDocument $document, TimestampOptionsDto $options): EncryptedPdfDocument
+    {
+        $pdfDocument = $this->documentPreparer->prepare($document->plainMirror());
+        $timestamp = $this->timestampAssembler->assemble($pdfDocument);
+
+        [$docToXref, $objectOffsets] = Xref::new()
+            ->withPdfDocument($pdfDocument)
+            ->generateContentToXref();
+
+        $xrefOffset = $docToXref->size();
+        $objectOffsets[$timestamp->getOid()] = $docToXref->size();
+        $xrefOffset += strlen($timestamp->toPdfEntry());
+
+        $docFromXref = $this->xrefContentResolver->resolve($pdfDocument, $objectOffsets, $xrefOffset);
+        $timestamp->withSizes($docToXref->size(), $docFromXref->size());
+        // All-zero placeholder: the encrypted revision computes /ByteRange and fills it with the token.
+        $timestamp['Contents'] = new PDFValueHexString(str_repeat('0', SignatureObject::SIGNATURE_MAX_LENGTH));
+
+        return $document->appendSignedRevision(
+            $docToXref->raw().$timestamp->toPdfEntry().$docFromXref->raw(),
+            fn (string $signedBytes, array $byteRange): string => $this->normalizeTimestampHexSize(
+                $this->timestampTokenProvider->requestTokenHex(
+                    $signedBytes,
+                    $this->byteRangeWithinSignableDocument($byteRange, strlen($signedBytes)),
+                    $options,
+                ),
+            ),
+        );
     }
 
     private function normalizeTimestampHexSize(string $timestampHex): string

@@ -31,28 +31,6 @@ TXT);
 }
 
 /**
- * @return array{ok:bool,output:string}
- */
-function runCommand(string $command): array
-{
-    $output = [];
-    $code = 1;
-    exec($command.' 2>&1', $output, $code);
-
-    return [
-        'ok' => $code === 0,
-        'output' => trim(implode("\n", $output)),
-    ];
-}
-
-function commandExists(string $command): bool
-{
-    $result = runCommand('command -v '.escapeshellarg($command));
-
-    return $result['ok'] && $result['output'] !== '';
-}
-
-/**
  * @param  array<int, array<string, mixed>>  $checks
  */
 function printTextReport(array $checks, bool $allRequiredOk): void
@@ -100,32 +78,6 @@ foreach (['openssl', 'curl', 'zlib', 'fileinfo'] as $extension) {
         'details' => extension_loaded($extension) ? 'loaded' : 'missing',
     ];
 }
-
-$opensslExists = commandExists('openssl');
-$opensslVersion = $opensslExists ? runCommand('openssl version') : ['ok' => false, 'output' => 'not found'];
-$checks[] = [
-    'name' => 'OpenSSL binary available',
-    'required' => true,
-    'ok' => $opensslExists,
-    'details' => $opensslVersion['output'],
-];
-
-$opensslTs = $opensslExists ? runCommand('openssl ts -help') : ['ok' => false, 'output' => 'skipped'];
-$checks[] = [
-    'name' => 'OpenSSL ts command support',
-    'required' => true,
-    'ok' => $opensslExists && $opensslTs['ok'],
-    'details' => $opensslExists ? ($opensslTs['ok'] ? 'supported' : 'not supported') : 'openssl missing',
-];
-
-$qpdfExists = commandExists('qpdf');
-$qpdfVersion = $qpdfExists ? runCommand('qpdf --version') : ['ok' => false, 'output' => 'not found'];
-$checks[] = [
-    'name' => 'qpdf binary available (PDF protection feature)',
-    'required' => false,
-    'ok' => $qpdfExists,
-    'details' => $qpdfVersion['output'],
-];
 
 $tmp = sys_get_temp_dir();
 $tmpWritable = is_dir($tmp) && is_writable($tmp);
