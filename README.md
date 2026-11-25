@@ -910,6 +910,7 @@ php bin/signer-sign --help
 
 - A digital signature covers specific PDF bytes (`ByteRange`). Because of that, operations that rewrite file bytes should run before signing.
 - Validation checks `ByteRange` integrity and CMS/PKCS#7 cryptographic validity with OpenSSL. Optionally, it can validate trust chain (`enableTrustChainValidation(...)`) and Brazil policy (`withBrazilPolicy(...)`).
+- Trust chain validation is native PHP (no `openssl` CLI) and covers a subset of RFC 5280: issuer chaining, signatures, validity at the reference time, CA basicConstraints/pathLen, keyCertSign and weak algorithms/keys. It fails closed on what it does not enforce (unknown critical extensions, name/policy constraints) and does not check revocation; OpenSSL `TRUSTED CERTIFICATE` entries in the trust store are ignored.
 - PAdES profiles:
   - Baseline-B: `SubFilter /ETSI.CAdES.detached`
   - Baseline-T: Baseline-B + RFC3161
