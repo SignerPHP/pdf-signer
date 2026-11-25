@@ -5,14 +5,15 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\PdfSigner\Domain\Exception\SignatureValidationException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Asn1Node;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\DetachedCmsAssembler;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProvider;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslTimestampTokenVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignatureCryptoVerification;
+use SignerPHP\PdfSigner\Tests\Support\CmsTestFactory;
 use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
 
 /**
@@ -55,11 +56,6 @@ final class OpenSslTimestampTokenVerifierTest extends TestCase
             openssl ts -reply -config tsa.cnf -queryfile sha512.tsq -token_out -out sha512.tst
             openssl cms -verify -binary -inform DER -in sha256.tst -noverify -out sha256.tstinfo
             SH);
-    }
-
-    protected function tearDown(): void
-    {
-        NativeFunctionOverrideState::$forceTempnamFailure = false;
     }
 
     public static function tearDownAfterClass(): void
@@ -145,37 +141,38 @@ final class OpenSslTimestampTokenVerifierTest extends TestCase
         self::assertSame('Timestamp message imprint uses an unsupported hash algorithm.', $result->message);
     }
 
-    public function test_throws_when_temporary_files_cannot_be_created(): void
+    public function test_a_process_runner_is_still_accepted_and_never_used(): void
     {
-        NativeFunctionOverrideState::$forceTempnamFailure = true;
-
-        $this->expectException(SignatureValidationException::class);
-        $this->expectExceptionMessage('Could not create temporary files for timestamp validation.');
-
-        (new OpenSslTimestampTokenVerifier)->verify(self::CONTENT, $this->contentsHex('sha256.tst'));
-    }
-
-    /**
-     * Runs the verifier on the real sha256 token, with `openssl cms -verify` replaced by a stub
-     * that writes the given TSTInfo and signer certificate.
-     */
-    private function verifyWithOpenSslOutput(string $tstInfo, string $signerCertificate): SignatureCryptoVerification
-    {
-        $runner = new class($tstInfo, (string) file_get_contents(self::$dir.'/'.$signerCertificate)) implements ProcessRunnerInterface
+        $runner = new class implements ProcessRunnerInterface
         {
-            public function __construct(private readonly string $tstInfo, private readonly string $signerPem) {}
-
             public function run(string $command): ProcessResult
             {
-                preg_match("/-out '([^']+)' -signer '([^']+)'/", $command, $files);
-                file_put_contents($files[1], $this->tstInfo);
-                file_put_contents($files[2], $this->signerPem);
-
-                return new ProcessResult(0, []);
+                throw new \LogicException('No external process may run.');
             }
         };
 
-        return (new OpenSslTimestampTokenVerifier($runner))->verify(self::CONTENT, $this->contentsHex('sha256.tst'));
+        self::assertTrue((new OpenSslTimestampTokenVerifier($runner))->verify(self::CONTENT, $this->contentsHex('sha256.tst'))->valid);
+    }
+
+    /**
+     * Signs $tstInfo as a real TimeStampToken: an attached CMS without signed attributes, so its
+     * encapsulated content type can be set to id-ct-TSTInfo without invalidating the signature.
+     */
+    private function verifyWithOpenSslOutput(string $tstInfo, string $signerCertificate): SignatureCryptoVerification
+    {
+        $name = basename($signerCertificate, '.crt');
+        $cms = CmsTestFactory::sign($tstInfo, attached: true, identity: [
+            'cert' => (string) file_get_contents(self::$dir.'/'.$name.'.crt'),
+            'key' => (string) file_get_contents(self::$dir.'/'.$name.'.key'),
+        ], flags: OPENSSL_CMS_NOATTR);
+        $token = CmsTestFactory::mapSignedDataFields($cms, static function (array $fields): array {
+            $eContent = Asn1Node::read($fields[2])->child(1)->encoded;
+            $fields[2] = Der::sequence(Der::objectIdentifier('1.2.840.113549.1.9.16.1.4').$eContent);
+
+            return $fields;
+        });
+
+        return (new OpenSslTimestampTokenVerifier)->verify(self::CONTENT, str_pad(bin2hex($token), 2 * strlen($token) + 64, '0'));
     }
 
     private function contentsHex(string $file): string

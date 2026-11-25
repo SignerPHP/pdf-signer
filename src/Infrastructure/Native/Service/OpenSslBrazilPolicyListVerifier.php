@@ -8,13 +8,24 @@ use SignerPHP\PdfSigner\Application\DTO\SignatureValidationOptionsDto;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\BrazilPolicyListVerifierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignatureVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignedData;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignaturePolicyVerification;
 
+/**
+ * Verifies the signature of the ICP-Brasil LPA (PAdES policy list) in PHP (no `openssl` binary).
+ */
 final class OpenSslBrazilPolicyListVerifier implements BrazilPolicyListVerifierInterface
 {
+    /**
+     * @param  ProcessRunnerInterface|null  $processRunner  unused since verification became native; kept for constructor compatibility
+     *
+     * @psalm-suppress UnusedParam
+     */
     public function __construct(
         private readonly HttpClientInterface $httpClient = new CurlHttpClient,
-        private readonly ProcessRunnerInterface $processRunner = new ShellProcessRunner,
+        ?ProcessRunnerInterface $processRunner = null,
+        private readonly CmsSignatureVerifier $cmsVerifier = new CmsSignatureVerifier,
     ) {}
 
     public function verifyPadesPolicy(SignatureValidationOptionsDto $options): SignaturePolicyVerification
@@ -35,45 +46,33 @@ final class OpenSslBrazilPolicyListVerifier implements BrazilPolicyListVerifierI
             return new SignaturePolicyVerification(false, 'Could not download LPA PAdES signature from '.$sigUrl);
         }
 
-        $tmpDir = sys_get_temp_dir();
-        $lpaFile = tempnam($tmpDir, 'lpa-pades');
-        $sigFile = tempnam($tmpDir, 'lpa-pades-sig');
-        $outFile = tempnam($tmpDir, 'lpa-pades-out');
-
-        if ($lpaFile === false || $sigFile === false || $outFile === false) {
-            return new SignaturePolicyVerification(false, 'Could not create temporary files for LPA verification.');
-        }
-
-        file_put_contents($lpaFile, $lpa);
-        file_put_contents($sigFile, $signature);
-
         try {
-            $derCommand = sprintf(
-                'openssl cms -verify -binary -inform DER -in %s -content %s -noverify -out %s',
-                escapeshellarg($sigFile),
-                escapeshellarg($lpaFile),
-                escapeshellarg($outFile),
-            );
-            if ($this->runCommand($derCommand)) {
-                return new SignaturePolicyVerification(true);
-            }
-
-            $smimeCommand = sprintf(
-                'openssl cms -verify -binary -in %s -content %s -noverify -out %s',
-                escapeshellarg($sigFile),
-                escapeshellarg($lpaFile),
-                escapeshellarg($outFile),
-            );
-            if ($this->runCommand($smimeCommand)) {
-                return new SignaturePolicyVerification(true);
-            }
-
+            $signedData = CmsSignedData::fromDer($this->signatureDer($signature));
+        } catch (\UnexpectedValueException) {
             return new SignaturePolicyVerification(false, 'LPA PAdES signature verification failed.');
-        } finally {
-            @unlink($lpaFile);
-            @unlink($sigFile);
-            @unlink($outFile);
         }
+
+        return $this->cmsVerifier->verify($signedData, $lpa)->valid
+            ? new SignaturePolicyVerification(true)
+            : new SignaturePolicyVerification(false, 'LPA PAdES signature verification failed.');
+    }
+
+    /**
+     * The LPA signature is published as DER; PEM and S/MIME (base64 body) encodings are accepted too.
+     */
+    private function signatureDer(string $signature): string
+    {
+        if (str_starts_with($signature, "\x30")) {
+            return $signature;
+        }
+
+        $body = preg_replace('/-----[^-]+-----/', '', $signature) ?? '';
+        $headerEnd = preg_match('/\R\R/', $body, $match, PREG_OFFSET_CAPTURE) === 1 && preg_match('/\A[\w-]+:/', $body) === 1
+            ? $match[0][1]
+            : 0;
+        $decoded = base64_decode(preg_replace('/\s+/', '', substr($body, $headerEnd)) ?? '', true);
+
+        return $decoded === false ? $signature : $decoded;
     }
 
     private function download(string $url, int $timeoutSeconds): ?string
@@ -84,10 +83,5 @@ final class OpenSslBrazilPolicyListVerifier implements BrazilPolicyListVerifierI
         }
 
         return $response->body;
-    }
-
-    private function runCommand(string $command): bool
-    {
-        return $this->processRunner->run($command)->succeeded();
     }
 }

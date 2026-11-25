@@ -6,17 +6,12 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslCmsCertificateCollector;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
+use SignerPHP\PdfSigner\Tests\Support\CmsTestFactory;
 
 final class OpenSslCmsCertificateCollectorTest extends TestCase
 {
-    protected function tearDown(): void
-    {
-        NativeFunctionOverrideState::$forceTempnamFailure = false;
-    }
-
     public function test_collect_returns_empty_for_invalid_hex(): void
     {
         $collector = new OpenSslCmsCertificateCollector;
@@ -38,111 +33,44 @@ final class OpenSslCmsCertificateCollectorTest extends TestCase
         self::assertSame([], $collector->collectDerCertificates(str_repeat('0', 100)));
     }
 
-    public function test_collect_returns_empty_when_openssl_command_fails(): void
+    public function test_collect_returns_empty_for_a_payload_that_is_not_cms(): void
+    {
+        self::assertSame([], (new OpenSslCmsCertificateCollector)->collectDerCertificates('41424344'));
+    }
+
+    public function test_collect_returns_every_embedded_certificate_in_order(): void
+    {
+        $cms = CmsTestFactory::fixture('two-signers.der');
+        $hex = str_pad(bin2hex($cms), 2 * strlen($cms) + 64, '0');
+
+        $certificates = (new OpenSslCmsCertificateCollector)->collectDerCertificates(" $hex\n");
+
+        self::assertCount(2, $certificates);
+        $subjects = array_map(
+            static fn (string $der): string => (string) openssl_x509_parse("-----BEGIN CERTIFICATE-----\n".chunk_split(base64_encode($der), 64, "\n")."-----END CERTIFICATE-----\n")['subject']['CN'],
+            $certificates,
+        );
+        sort($subjects);
+        self::assertSame(['Fixture-RSA', 'Fixture-RSA-2'], $subjects);
+    }
+
+    public function test_collect_returns_empty_when_the_cms_carries_no_certificates(): void
+    {
+        $cms = CmsTestFactory::sign('content', flags: OPENSSL_CMS_NOCERTS);
+
+        self::assertSame([], (new OpenSslCmsCertificateCollector)->collectDerCertificates(bin2hex($cms)));
+    }
+
+    public function test_a_process_runner_is_still_accepted_and_never_used(): void
     {
         $runner = new class implements ProcessRunnerInterface
         {
             public function run(string $command): ProcessResult
             {
-                return new ProcessResult(1, ['error']);
+                throw new \LogicException('No external process may run.');
             }
         };
 
-        $collector = new OpenSslCmsCertificateCollector($runner);
-
-        self::assertSame([], $collector->collectDerCertificates('41424344'));
-    }
-
-    public function test_collect_extracts_der_certificates_from_pem_output(): void
-    {
-        $runner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                preg_match("/-out '([^']+)'/", $command, $matches);
-                $out = $matches[1] ?? null;
-                if (is_string($out) && $out !== '') {
-                    $pem = <<<'PEM'
------BEGIN CERTIFICATE-----
-QUJDRA==
------END CERTIFICATE-----
------BEGIN CERTIFICATE-----
-RUZHSA==
------END CERTIFICATE-----
-PEM;
-                    file_put_contents($out, $pem);
-                }
-
-                return new ProcessResult(0, ['ok']);
-            }
-        };
-
-        $collector = new OpenSslCmsCertificateCollector($runner);
-        $certs = $collector->collectDerCertificates('41424344');
-
-        self::assertCount(2, $certs);
-        self::assertSame('ABCD', $certs[0]);
-        self::assertSame('EFGH', $certs[1]);
-    }
-
-    public function test_collect_returns_empty_when_temp_files_cannot_be_allocated(): void
-    {
-        NativeFunctionOverrideState::$forceTempnamFailure = true;
-
-        $collector = new OpenSslCmsCertificateCollector(new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                return new ProcessResult(0, ['ok']);
-            }
-        });
-
-        self::assertSame([], $collector->collectDerCertificates('41424344'));
-    }
-
-    public function test_collect_returns_empty_when_pem_output_file_is_empty(): void
-    {
-        $collector = new OpenSslCmsCertificateCollector(new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                return new ProcessResult(0, ['ok']);
-            }
-        });
-
-        self::assertSame([], $collector->collectDerCertificates('41424344'));
-    }
-
-    public function test_collect_skips_invalid_and_empty_certificate_blocks(): void
-    {
-        $runner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                preg_match("/-out '([^']+)'/", $command, $matches);
-                $out = $matches[1] ?? null;
-                if (is_string($out) && $out !== '') {
-                    $pem = <<<'PEM'
------BEGIN CERTIFICATE-----
-   
------END CERTIFICATE-----
------BEGIN CERTIFICATE-----
-@@@not-base64@@@
------END CERTIFICATE-----
------BEGIN CERTIFICATE-----
-QUJDRA==
------END CERTIFICATE-----
-PEM;
-                    file_put_contents($out, $pem);
-                }
-
-                return new ProcessResult(0, ['ok']);
-            }
-        };
-
-        $collector = new OpenSslCmsCertificateCollector($runner);
-        $certs = $collector->collectDerCertificates('41424344');
-
-        self::assertSame(['ABCD'], $certs);
+        self::assertCount(1, (new OpenSslCmsCertificateCollector($runner))->collectDerCertificates(bin2hex(CmsTestFactory::sign('content'))));
     }
 }

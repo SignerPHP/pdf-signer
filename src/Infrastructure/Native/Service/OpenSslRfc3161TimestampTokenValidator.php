@@ -7,52 +7,40 @@ namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenValidatorInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignatureVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignedData;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 
 /**
- * Validates RFC 3161 token integrity and imprint binding. CMS -noverify deliberately
+ * Validates RFC 3161 token integrity and imprint binding in PHP. Like `openssl cms -noverify`, it deliberately
  * does not establish trust in the TSA's certificate chain; policy validation must do that separately.
  */
 final class OpenSslRfc3161TimestampTokenValidator implements TimestampTokenValidatorInterface
 {
+    /**
+     * @param  ProcessRunnerInterface|null  $processRunner  unused since verification became native; kept for constructor compatibility
+     *
+     * @psalm-suppress UnusedParam
+     */
     public function __construct(
-        private readonly ProcessRunnerInterface $processRunner = new ShellProcessRunner,
+        ?ProcessRunnerInterface $processRunner = null,
+        private readonly CmsSignatureVerifier $cmsVerifier = new CmsSignatureVerifier,
     ) {}
 
     public function assertValid(string $tokenDer, string $signatureValue): void
     {
-        $tokenFile = tempnam(sys_get_temp_dir(), 'tsa-token-');
-        $infoFile = tempnam(sys_get_temp_dir(), 'tsa-info-');
-        if ($tokenFile === false || $infoFile === false) {
-            if (is_string($tokenFile)) {
-                @unlink($tokenFile);
-            }
-            if (is_string($infoFile)) {
-                @unlink($infoFile);
-            }
-            throw new SignProcessException('Could not create temporary files for signature timestamp verification.');
+        try {
+            $token = CmsSignedData::fromDer($tokenDer);
+        } catch (\UnexpectedValueException) {
+            throw new SignProcessException('Invalid RFC 3161 signature timestamp token (CMS signature verification failed).');
         }
 
-        try {
-            if (file_put_contents($tokenFile, $tokenDer) !== strlen($tokenDer)) {
-                throw new SignProcessException('Could not write the signature timestamp token.');
-            }
+        if (! $this->cmsVerifier->verify($token)->valid) {
+            throw new SignProcessException('Invalid RFC 3161 signature timestamp token (CMS signature verification failed).');
+        }
 
-            $result = $this->processRunner->run(
-                'openssl cms -verify -binary -noverify -inform DER -in '
-                .escapeshellarg($tokenFile).' -out '.escapeshellarg($infoFile)
-            );
-            if (! $result->succeeded()) {
-                throw new SignProcessException('Invalid RFC 3161 signature timestamp token (CMS signature verification failed).');
-            }
-
-            $info = file_get_contents($infoFile);
-            if (! is_string($info) || ! $this->matchesImprint($info, $signatureValue)) {
-                throw new SignProcessException('Invalid RFC 3161 signature timestamp token (message imprint mismatch or invalid TSTInfo).');
-            }
-        } finally {
-            @unlink($tokenFile);
-            @unlink($infoFile);
+        if ($token->encapsulatedContent === null || ! $this->matchesImprint($token->encapsulatedContent, $signatureValue)) {
+            throw new SignProcessException('Invalid RFC 3161 signature timestamp token (message imprint mismatch or invalid TSTInfo).');
         }
     }
 
