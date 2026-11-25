@@ -23,8 +23,8 @@ final readonly class DocumentLongTermValidationApplier implements LongTermValida
         private XrefContentResolver $xrefContentResolver = new XrefContentResolver,
         private TrailerObjectResolver $trailerObjectResolver = new TrailerObjectResolver,
         private PdfSignatureExtractorInterface $signatureExtractor = new PdfSignatureExtractor,
-        private SignatureCertificateCollectorInterface $certificateCollector = new OpenSslCmsCertificateCollector,
-        private SignatureRevocationEvidenceCollectorInterface $revocationCollector = new OpenSslRevocationEvidenceCollector,
+        private SignatureCertificateCollectorInterface $certificateCollector = new NativeCmsCertificateCollector,
+        private SignatureRevocationEvidenceCollectorInterface $revocationCollector = new NativeRevocationEvidenceCollector,
     ) {}
 
     public function apply(string $signedPdfContent): string

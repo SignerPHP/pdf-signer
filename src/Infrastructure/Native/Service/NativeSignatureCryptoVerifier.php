@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCryptoVerifierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignatureVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignedData;
@@ -13,15 +12,9 @@ use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignatureCryptoVerific
 /**
  * Verifies a detached CMS signature over the signed ByteRange in PHP (no `openssl` binary).
  */
-final class OpenSslSignatureCryptoVerifier implements SignatureCryptoVerifierInterface
+final class NativeSignatureCryptoVerifier implements SignatureCryptoVerifierInterface
 {
-    /**
-     * @param  ProcessRunnerInterface|null  $processRunner  unused since verification became native; kept for constructor compatibility
-     *
-     * @psalm-suppress UnusedParam
-     */
     public function __construct(
-        ?ProcessRunnerInterface $processRunner = null,
         private readonly CmsSignatureVerifier $cmsVerifier = new CmsSignatureVerifier,
     ) {}
 

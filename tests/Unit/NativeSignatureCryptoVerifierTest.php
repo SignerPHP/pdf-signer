@@ -5,16 +5,14 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslSignatureCryptoVerifier;
-use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeSignatureCryptoVerifier;
 use SignerPHP\PdfSigner\Tests\Support\CmsTestFactory;
 
-final class OpenSslSignatureCryptoVerifierTest extends TestCase
+final class NativeSignatureCryptoVerifierTest extends TestCase
 {
     public function test_verify_returns_invalid_for_empty_signature_hex(): void
     {
-        $verifier = new OpenSslSignatureCryptoVerifier;
+        $verifier = new NativeSignatureCryptoVerifier;
         $result = $verifier->verify('content', '');
 
         self::assertFalse($result->valid);
@@ -22,7 +20,7 @@ final class OpenSslSignatureCryptoVerifierTest extends TestCase
 
     public function test_verify_returns_invalid_for_zero_placeholder_hex(): void
     {
-        $verifier = new OpenSslSignatureCryptoVerifier;
+        $verifier = new NativeSignatureCryptoVerifier;
         $result = $verifier->verify('content', '0000000000');
 
         self::assertFalse($result->valid);
@@ -31,7 +29,7 @@ final class OpenSslSignatureCryptoVerifierTest extends TestCase
 
     public function test_verify_returns_invalid_for_non_hex_signature(): void
     {
-        $verifier = new OpenSslSignatureCryptoVerifier;
+        $verifier = new NativeSignatureCryptoVerifier;
 
         set_error_handler(static function (): bool {
             return true;
@@ -53,7 +51,7 @@ final class OpenSslSignatureCryptoVerifierTest extends TestCase
         $content = "%PDF-1.7 signed byte range\n";
         $hex = str_pad(strtoupper(bin2hex(CmsTestFactory::sign($content))), 16384, '0');
 
-        $verifier = new OpenSslSignatureCryptoVerifier;
+        $verifier = new NativeSignatureCryptoVerifier;
 
         self::assertTrue($verifier->verify($content, $hex)->valid);
         $tampered = $verifier->verify($content.'x', $hex);
@@ -63,23 +61,9 @@ final class OpenSslSignatureCryptoVerifierTest extends TestCase
 
     public function test_verify_reports_a_payload_that_is_not_cms(): void
     {
-        $result = (new OpenSslSignatureCryptoVerifier)->verify('content', '3003020101');
+        $result = (new NativeSignatureCryptoVerifier)->verify('content', '3003020101');
 
         self::assertFalse($result->valid);
         self::assertStringStartsWith('Invalid CMS signature: ', (string) $result->message);
-    }
-
-    public function test_a_process_runner_is_still_accepted_and_never_used(): void
-    {
-        $runner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                throw new \LogicException('No external process may run.');
-            }
-        };
-
-        $content = 'content';
-        self::assertTrue((new OpenSslSignatureCryptoVerifier($runner))->verify($content, bin2hex(CmsTestFactory::sign($content)))->valid);
     }
 }

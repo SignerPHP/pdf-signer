@@ -7,16 +7,14 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValidationOptionsDto;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslBrazilPolicyListVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeBrazilPolicyListVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
-use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
 
-final class OpenSslBrazilPolicyListVerifierTest extends TestCase
+final class NativeBrazilPolicyListVerifierTest extends TestCase
 {
     public function test_verify_returns_invalid_when_lpa_urls_are_missing(): void
     {
-        $verifier = new OpenSslBrazilPolicyListVerifier;
+        $verifier = new NativeBrazilPolicyListVerifier;
         $result = $verifier->verifyPadesPolicy(new SignatureValidationOptionsDto);
 
         self::assertFalse($result->valid);
@@ -39,7 +37,7 @@ final class OpenSslBrazilPolicyListVerifierTest extends TestCase
             }
         };
 
-        $verifier = new OpenSslBrazilPolicyListVerifier($httpClient);
+        $verifier = new NativeBrazilPolicyListVerifier($httpClient);
         $result = $verifier->verifyPadesPolicy(new SignatureValidationOptionsDto(
             lpaUrlAsn1Pades: 'https://example.local/lpa.der',
             lpaUrlAsn1SignaturePades: 'https://example.local/lpa.p7s',
@@ -73,7 +71,7 @@ final class OpenSslBrazilPolicyListVerifierTest extends TestCase
             }
         };
 
-        $verifier = new OpenSslBrazilPolicyListVerifier($httpClient);
+        $verifier = new NativeBrazilPolicyListVerifier($httpClient);
         $result = $verifier->verifyPadesPolicy(new SignatureValidationOptionsDto(
             lpaUrlAsn1Pades: 'https://example.local/lpa.der',
             lpaUrlAsn1SignaturePades: 'https://example.local/lpa.p7s',
@@ -115,24 +113,9 @@ final class OpenSslBrazilPolicyListVerifierTest extends TestCase
         self::assertSame('LPA PAdES signature verification failed.', $result->message);
     }
 
-    public function test_a_process_runner_is_still_accepted_and_never_used(): void
-    {
-        $runner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                throw new \LogicException('No external process may run.');
-            }
-        };
-
-        $verifier = new OpenSslBrazilPolicyListVerifier($this->httpClientServing(self::fixture('LPA_PAdES.der'), self::fixture('LPA_PAdES.p7s')), $runner);
-
-        self::assertTrue($verifier->verifyPadesPolicy($this->options())->valid);
-    }
-
     private function verifyWith(string $lpa, string $signature): \SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignaturePolicyVerification
     {
-        return (new OpenSslBrazilPolicyListVerifier($this->httpClientServing($lpa, $signature)))->verifyPadesPolicy($this->options());
+        return (new NativeBrazilPolicyListVerifier($this->httpClientServing($lpa, $signature)))->verifyPadesPolicy($this->options());
     }
 
     private function options(): SignatureValidationOptionsDto

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace SignerPHP\PdfSigner\Infrastructure\Native\Service\Inspect;
 
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Asn1Node;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignedData;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignerInfo;
@@ -14,7 +13,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignerInfo;
  * and authenticated-attribute signing time) from a PKCS#7/CMS DER blob.
  * Names and the time format follow what `openssl cms -print` showed before parsing became native.
  */
-final class OpenSslCmsSignerInfoInspector
+final class NativeCmsSignerInfoInspector
 {
     private const ALGORITHM_NAMES = [
         '1.3.14.3.2.26' => 'sha1',
@@ -36,13 +35,6 @@ final class OpenSslCmsSignerInfoInspector
         '1.2.840.10045.4.3.3' => 'ecdsa-with-SHA384',
         '1.2.840.10045.4.3.4' => 'ecdsa-with-SHA512',
     ];
-
-    /**
-     * @param  ProcessRunnerInterface|null  $processRunner  unused since parsing became native; kept for constructor compatibility
-     *
-     * @psalm-suppress UnusedParam
-     */
-    public function __construct(?ProcessRunnerInterface $processRunner = null) {}
 
     /**
      * @return array{digest_algorithm:string|null,signature_algorithm:string|null,cms_signing_time:string|null}

@@ -5,14 +5,13 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeRevocationEvidenceCollector;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspRequest;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspResponse;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslRevocationEvidenceCollector;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
 use SignerPHP\PdfSigner\Tests\Support\OcspTestPki;
 
-final class OpenSslRevocationEvidenceCollectorTest extends TestCase
+final class NativeRevocationEvidenceCollectorTest extends TestCase
 {
     private static ?OcspTestPki $pki = null;
 
@@ -27,14 +26,14 @@ final class OpenSslRevocationEvidenceCollectorTest extends TestCase
 
     public function test_collect_returns_empty_array_when_chain_is_empty(): void
     {
-        $collector = new OpenSslRevocationEvidenceCollector;
+        $collector = new NativeRevocationEvidenceCollector;
 
         self::assertSame([], $collector->collect([]));
     }
 
     public function test_collect_returns_empty_evidence_for_invalid_certificates(): void
     {
-        $collector = new OpenSslRevocationEvidenceCollector;
+        $collector = new NativeRevocationEvidenceCollector;
 
         $result = $collector->collect(["\x01\x02\x03", "\x04\x05\x06"]);
 
@@ -49,7 +48,7 @@ final class OpenSslRevocationEvidenceCollectorTest extends TestCase
 
     public function test_collect_returns_empty_evidence_for_empty_der_payload(): void
     {
-        $collector = new OpenSslRevocationEvidenceCollector;
+        $collector = new NativeRevocationEvidenceCollector;
 
         $result = $collector->collect(['']);
 
@@ -65,7 +64,7 @@ final class OpenSslRevocationEvidenceCollectorTest extends TestCase
         $http = OcspTestPki::httpClient(static fn (string $body, string $url): HttpResponse => str_contains($url, 'crl.local')
             ? new HttpResponse(200, 'crl-bytes')
             : new HttpResponse(404, ''));
-        $collector = new OpenSslRevocationEvidenceCollector(httpClient: $http);
+        $collector = new NativeRevocationEvidenceCollector(httpClient: $http);
 
         $certA = $this->createCertificateDerWithRevocationExtensions('A');
         $certB = $this->createCertificateDerWithRevocationExtensions('B');
@@ -86,7 +85,7 @@ final class OpenSslRevocationEvidenceCollectorTest extends TestCase
         }
 
         $http = OcspTestPki::httpClient(static fn (): HttpResponse => new HttpResponse(404, ''));
-        $collector = new OpenSslRevocationEvidenceCollector(httpClient: $http);
+        $collector = new NativeRevocationEvidenceCollector(httpClient: $http);
         $certA = $this->createCertificateDerWithRevocationExtensions('A');
         $certB = $this->createCertificateDerWithRevocationExtensions('B');
 
@@ -101,10 +100,7 @@ final class OpenSslRevocationEvidenceCollectorTest extends TestCase
     {
         $pki = $this->pki();
         $http = OcspTestPki::httpClient(static fn (string $request): HttpResponse => new HttpResponse(200, $pki->respond($request)));
-        $runner = $this->createMock(ProcessRunnerInterface::class);
-        $runner->expects(self::never())->method('run');
-
-        $result = (new OpenSslRevocationEvidenceCollector(httpClient: $http, processRunner: $runner))
+        $result = (new NativeRevocationEvidenceCollector(httpClient: $http))
             ->collect([$pki->der('leaf'), $pki->der('ca'), $pki->der('root')]);
 
         self::assertCount(1, $result[0]['ocsp']);
@@ -142,7 +138,7 @@ final class OpenSslRevocationEvidenceCollectorTest extends TestCase
 
         foreach ($answers as $index => $pair) {
             $http = OcspTestPki::httpClient(static fn (string $request, string $url): HttpResponse => str_contains($url, 'ocsp-a') ? $pair[0] : $pair[1]);
-            $result = (new OpenSslRevocationEvidenceCollector(httpClient: $http))
+            $result = (new NativeRevocationEvidenceCollector(httpClient: $http))
                 ->collect([$pki->der('twoResponders'), $pki->der('ca')]);
 
             self::assertSame($expected[$index], $result[0]['ocsp']);
@@ -152,7 +148,7 @@ final class OpenSslRevocationEvidenceCollectorTest extends TestCase
 
     public function test_collect_ocsp_internal_returns_empty_when_urls_or_issuers_are_missing(): void
     {
-        $collector = new OpenSslRevocationEvidenceCollector;
+        $collector = new NativeRevocationEvidenceCollector;
         $method = new \ReflectionMethod($collector, 'collectOcspResponses');
 
         self::assertSame([], $method->invoke($collector, 'cert-der', [], ['http://ocsp.local']));

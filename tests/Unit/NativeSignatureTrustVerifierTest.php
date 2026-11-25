@@ -8,7 +8,6 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValidationOptionsDto;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCertificateCollectorInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\DetachedCmsAssembler;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\X509Certificate;
@@ -16,12 +15,11 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\X509PathValidator;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\IcpBrasilTrustAnchorBundleProvider;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProvider;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeFunctionOverrideState;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslSignatureTrustVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeSignatureTrustVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
-use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
 use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
 
-final class OpenSslSignatureTrustVerifierTest extends TestCase
+final class NativeSignatureTrustVerifierTest extends TestCase
 {
     protected function tearDown(): void
     {
@@ -47,7 +45,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
             }
         };
 
-        $verifier = new OpenSslSignatureTrustVerifier($collector);
+        $verifier = new NativeSignatureTrustVerifier($collector);
         $result = $verifier->verify('ABCD', new SignatureValidationOptionsDto(checkTrustChain: false));
 
         self::assertTrue($result->valid);
@@ -63,7 +61,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
             }
         };
 
-        $verifier = new OpenSslSignatureTrustVerifier($collector);
+        $verifier = new NativeSignatureTrustVerifier($collector);
         $result = $verifier->verify('ABCD', new SignatureValidationOptionsDto(
             checkTrustChain: true,
             trustStorePath: '/path/that/does/not/exist.pem',
@@ -88,7 +86,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
         file_put_contents($trustStore, "-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----\n");
 
         try {
-            $verifier = new OpenSslSignatureTrustVerifier($collector);
+            $verifier = new NativeSignatureTrustVerifier($collector);
             $result = $verifier->verify('ABCD', new SignatureValidationOptionsDto(
                 checkTrustChain: true,
                 trustStorePath: $trustStore,
@@ -120,7 +118,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
         file_put_contents($trustStore, "-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----\n");
 
         try {
-            $verifier = new OpenSslSignatureTrustVerifier($collector);
+            $verifier = new NativeSignatureTrustVerifier($collector);
             $result = $verifier->verify($signatureHex, new SignatureValidationOptionsDto(
                 checkTrustChain: true,
                 trustStorePath: $trustStore,
@@ -143,18 +141,12 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
         ];
     }
 
-    public function test_verify_validates_a_real_chain_natively_without_running_processes(): void
+    public function test_verify_validates_a_real_chain_natively(): void
     {
         $pki = $this->chainFixture();
 
         try {
-            $verifier = new OpenSslSignatureTrustVerifier($pki['collector'], processRunner: new class implements ProcessRunnerInterface
-            {
-                public function run(string $command): ProcessResult
-                {
-                    throw new \LogicException('Chain validation must not run external processes: '.$command);
-                }
-            });
+            $verifier = new NativeSignatureTrustVerifier($pki['collector']);
             $options = new SignatureValidationOptionsDto(checkTrustChain: true, trustStorePath: $pki['dir'].'/root.crt');
 
             $result = $verifier->verify($pki['signatureHex'], $options);
@@ -170,7 +162,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
         $pki = $this->chainFixture('20200101000000Z', '20210101000000Z');
 
         try {
-            $verifier = new OpenSslSignatureTrustVerifier($pki['collector']);
+            $verifier = new NativeSignatureTrustVerifier($pki['collector']);
             $options = new SignatureValidationOptionsDto(checkTrustChain: true, trustStorePath: $pki['dir'].'/root.crt');
 
             $atGenTime = $verifier->verifyAt($pki['signatureHex'], $options, new \DateTimeImmutable('2020-06-15T12:00:00Z'));
@@ -189,7 +181,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
         $pki = $this->chainFixture(withIntermediate: false);
 
         try {
-            $result = (new OpenSslSignatureTrustVerifier($pki['collector']))->verify(
+            $result = (new NativeSignatureTrustVerifier($pki['collector']))->verify(
                 $pki['signatureHex'],
                 new SignatureValidationOptionsDto(checkTrustChain: true, trustStorePath: $pki['dir'].'/root.crt'),
             );
@@ -218,7 +210,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
         file_put_contents($trustStore, "-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----\n");
 
         try {
-            $result = (new OpenSslSignatureTrustVerifier($collector))->verify(
+            $result = (new NativeSignatureTrustVerifier($collector))->verify(
                 $signatureHex,
                 new SignatureValidationOptionsDto(checkTrustChain: true, trustStorePath: $trustStore),
             );
@@ -351,7 +343,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
         };
 
         try {
-            $result = (new OpenSslSignatureTrustVerifier($collector))->verify(
+            $result = (new NativeSignatureTrustVerifier($collector))->verify(
                 bin2hex((string) file_get_contents("$dir/t.der")),
                 new SignatureValidationOptionsDto(checkTrustChain: true, trustStorePath: "$dir/s.crt"),
             );
@@ -381,7 +373,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
             }
         };
 
-        $verifier = new OpenSslSignatureTrustVerifier($collector);
+        $verifier = new NativeSignatureTrustVerifier($collector);
         $result = $verifier->verify('ABCD', new SignatureValidationOptionsDto(
             checkTrustChain: true,
         ));
@@ -402,7 +394,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
             }
         };
 
-        $verifier = new OpenSslSignatureTrustVerifier($collector);
+        $verifier = new NativeSignatureTrustVerifier($collector);
         $result = $verifier->verify('ABCD', new SignatureValidationOptionsDto(
             checkTrustChain: true,
         ));
@@ -452,7 +444,7 @@ final class OpenSslSignatureTrustVerifierTest extends TestCase
             }
         };
 
-        $verifier = new OpenSslSignatureTrustVerifier(
+        $verifier = new NativeSignatureTrustVerifier(
             certificateCollector: $collector,
             trustAnchorBundleProvider: $trustProvider
         );

@@ -8,14 +8,14 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslRfc3161TimestampTokenValidator;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeRfc3161TimestampTokenValidator;
 use SignerPHP\PdfSigner\Tests\Support\CmsTestFactory;
 
 /**
  * Isolates TSTInfo parsing: each crafted TSTInfo is wrapped in a validly signed CMS.
- * OpenSslRfc3161TimestampTokenValidatorTest uses tokens issued by a real TSA.
+ * NativeRfc3161TimestampTokenValidatorTest uses tokens issued by a real TSA.
  */
-final class OpenSslRfc3161TstInfoTest extends TestCase
+final class NativeRfc3161TstInfoTest extends TestCase
 {
     public static function tstInfoCases(): iterable
     {
@@ -48,7 +48,7 @@ final class OpenSslRfc3161TstInfoTest extends TestCase
             $this->expectExceptionMessage('message imprint mismatch or invalid TSTInfo');
         }
 
-        (new OpenSslRfc3161TimestampTokenValidator)->assertValid($token, $signature);
+        (new NativeRfc3161TimestampTokenValidator)->assertValid($token, $signature);
 
         if ($valid) {
             self::assertTrue(true);

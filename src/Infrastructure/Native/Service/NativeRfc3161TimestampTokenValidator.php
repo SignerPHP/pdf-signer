@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenValidatorInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignatureVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignedData;
@@ -15,15 +14,9 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
  * Validates RFC 3161 token integrity and imprint binding in PHP. Like `openssl cms -noverify`, it deliberately
  * does not establish trust in the TSA's certificate chain; policy validation must do that separately.
  */
-final class OpenSslRfc3161TimestampTokenValidator implements TimestampTokenValidatorInterface
+final class NativeRfc3161TimestampTokenValidator implements TimestampTokenValidatorInterface
 {
-    /**
-     * @param  ProcessRunnerInterface|null  $processRunner  unused since verification became native; kept for constructor compatibility
-     *
-     * @psalm-suppress UnusedParam
-     */
     public function __construct(
-        ?ProcessRunnerInterface $processRunner = null,
         private readonly CmsSignatureVerifier $cmsVerifier = new CmsSignatureVerifier,
     ) {}
 

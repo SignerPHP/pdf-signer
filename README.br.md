@@ -635,7 +635,7 @@ Essa inspeção ajuda a explicar avisos em validadores externos (ex.: indisponib
 
 ## Diagnóstico de ambiente via CLI
 
-Use `bin/signer-doctor` para validar rapidamente dependências de runtime (versão do PHP, extensões obrigatórias, binário OpenSSL e `openssl ts` e acesso ao diretório temporário).
+Use `bin/signer-doctor` para validar rapidamente dependências de runtime (versão do PHP, extensões PHP obrigatórias e acesso ao diretório temporário). Nenhum binário externo é necessário: CMS, timestamps RFC 3161, OCSP, cadeias de certificados e criptografia de PDF são tratados em PHP.
 
 ```bash
 php bin/signer-doctor
@@ -748,14 +748,14 @@ php bin/signer-sign --help
 
 ## Requisitos operacionais
 
-- Para timestamp RFC3161, o host precisa ter `openssl` com suporte ao comando `openssl ts`.
+- Nenhum binário externo (`openssl` de linha de comando, `qpdf`) é necessário: timestamp RFC 3161, OCSP, CMS e verificação de cadeia rodam em PHP sobre a `ext-openssl`.
 - A proteção de PDF por permissões é feita em PHP puro (AES-256 por padrão, AES-128 com `keyLengthBits: 128`); nenhum binário externo é necessário.
 - Se usar TSA público padrão, considere disponibilidade/SLA em produção e prefira um provedor dedicado.
 
 ## Notas de implementação
 
 - A assinatura digital cobre bytes específicos do PDF (`ByteRange`). Por isso, operações que regravem o arquivo devem ocorrer antes da assinatura.
-- A validação verifica integridade (`ByteRange`) e validade criptográfica CMS/PKCS#7 com OpenSSL. Opcionalmente, pode validar cadeia de confiança via trust store (`enableTrustChainValidation(...)`) e política Brasil (`withBrazilPolicy(...)`).
+- A validação verifica integridade (`ByteRange`) e validade criptográfica CMS/PKCS#7 em PHP (primitivas da `ext-openssl`). Opcionalmente, pode validar cadeia de confiança via trust store (`enableTrustChainValidation(...)`) e política Brasil (`withBrazilPolicy(...)`).
 - A validação da cadeia de confiança é feita em PHP nativo (sem o `openssl` de linha de comando) e cobre um subconjunto da RFC 5280: encadeamento de emissores, assinaturas, validade na data de referência, basicConstraints/pathLen de CA, keyCertSign e algoritmos/chaves fracos. Ela rejeita o que não aplica (extensões críticas desconhecidas, restrições de nomes e de políticas) e não verifica revogação; entradas `TRUSTED CERTIFICATE` do OpenSSL no trust store são ignoradas.
 - Perfis PAdES:
   - Baseline-B: `SubFilter /ETSI.CAdES.detached`

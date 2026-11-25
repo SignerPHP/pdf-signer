@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureRevocationEvidenceCollectorInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspRequest;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspResponse;
@@ -16,17 +15,13 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspResponse;
  * stored as received (validators verify them), as long as they are successful basic responses
  * answering for the requested certificate.
  */
-final readonly class OpenSslRevocationEvidenceCollector implements SignatureRevocationEvidenceCollectorInterface
+final readonly class NativeRevocationEvidenceCollector implements SignatureRevocationEvidenceCollectorInterface
 {
     private const OCSP_NETWORK_TIMEOUT_SECONDS = 10;
 
-    /**
-     * @param  ProcessRunnerInterface  $processRunner  @deprecated unused since OCSP is handled natively; kept for constructor compatibility
-     */
     public function __construct(
         private X509ExtensionUrlExtractor $urlExtractor = new X509ExtensionUrlExtractor,
         private HttpClientInterface $httpClient = new CurlHttpClient,
-        private ProcessRunnerInterface $processRunner = new ShellProcessRunner,
     ) {}
 
     public function collect(array $certificateChainDer): array

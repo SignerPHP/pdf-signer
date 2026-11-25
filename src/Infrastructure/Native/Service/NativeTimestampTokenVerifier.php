@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCryptoVerifierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignatureVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignedData;
@@ -21,7 +20,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignatureCryptoVerific
  *     verifier can check the TSA chain at that instant.
  * Like the CMS verifier, the certificate chain is left to the trust verifier.
  */
-final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInterface
+final class NativeTimestampTokenVerifier implements SignatureCryptoVerifierInterface
 {
     private const OID_TST_INFO = '1.2.840.113549.1.9.16.1.4';
 
@@ -39,13 +38,7 @@ final class OpenSslTimestampTokenVerifier implements SignatureCryptoVerifierInte
         '2.16.840.1.101.3.4.2.3' => 'sha512',
     ];
 
-    /**
-     * @param  ProcessRunnerInterface|null  $processRunner  unused since verification became native; kept for constructor compatibility
-     *
-     * @psalm-suppress UnusedParam
-     */
     public function __construct(
-        ?ProcessRunnerInterface $processRunner = null,
         private readonly CmsSignatureVerifier $cmsVerifier = new CmsSignatureVerifier,
     ) {}
 

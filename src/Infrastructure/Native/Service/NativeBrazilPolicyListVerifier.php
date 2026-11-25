@@ -7,7 +7,6 @@ namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 use SignerPHP\PdfSigner\Application\DTO\SignatureValidationOptionsDto;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\BrazilPolicyListVerifierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignatureVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\CmsSignedData;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignaturePolicyVerification;
@@ -15,16 +14,10 @@ use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignaturePolicyVerific
 /**
  * Verifies the signature of the ICP-Brasil LPA (PAdES policy list) in PHP (no `openssl` binary).
  */
-final class OpenSslBrazilPolicyListVerifier implements BrazilPolicyListVerifierInterface
+final class NativeBrazilPolicyListVerifier implements BrazilPolicyListVerifierInterface
 {
-    /**
-     * @param  ProcessRunnerInterface|null  $processRunner  unused since verification became native; kept for constructor compatibility
-     *
-     * @psalm-suppress UnusedParam
-     */
     public function __construct(
         private readonly HttpClientInterface $httpClient = new CurlHttpClient,
-        ?ProcessRunnerInterface $processRunner = null,
         private readonly CmsSignatureVerifier $cmsVerifier = new CmsSignatureVerifier,
     ) {}
 

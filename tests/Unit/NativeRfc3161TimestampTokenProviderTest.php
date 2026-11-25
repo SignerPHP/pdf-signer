@@ -10,14 +10,14 @@ use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslRfc3161TimestampTokenProvider;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeRfc3161TimestampTokenProvider;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
 
 /**
  * The TSA endpoint is faked by an HTTP client that answers each request with a real
  * TimeStampResp issued by a throwaway TSA through `openssl ts -reply`.
  */
-final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
+final class NativeRfc3161TimestampTokenProviderTest extends TestCase
 {
     private const DOCUMENT = '1234567890ABCDEF';
 
@@ -73,7 +73,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
 
     protected function setUp(): void
     {
-        $reflection = new \ReflectionClass(OpenSslRfc3161TimestampTokenProvider::class);
+        $reflection = new \ReflectionClass(NativeRfc3161TimestampTokenProvider::class);
         $cache = $reflection->getProperty('oauthTokenCache');
         $cache->setValue(null, []);
     }
@@ -82,7 +82,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
     {
         foreach (['sha224', 'sha256', 'sha384', 'sha512'] as $algorithm) {
             $client = $this->tsaClient();
-            $provider = new OpenSslRfc3161TimestampTokenProvider($client);
+            $provider = new NativeRfc3161TimestampTokenProvider($client);
 
             $hex = $provider->requestTokenHex(self::DOCUMENT, [0, 4, 8, 4], new TimestampOptionsDto(
                 tsaUrl: self::TSA_URL,
@@ -111,7 +111,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
     public function test_request_is_a_der_time_stamp_req_with_a_fresh_nonce(): void
     {
         $client = $this->tsaClient();
-        $provider = new OpenSslRfc3161TimestampTokenProvider($client);
+        $provider = new NativeRfc3161TimestampTokenProvider($client);
         $options = new TimestampOptionsDto(tsaUrl: self::TSA_URL);
 
         $provider->requestTokenHex(self::DOCUMENT, [0, 4, 8, 4], $options);
@@ -141,7 +141,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
     {
         $client = $this->tsaClient();
 
-        $hex = (new OpenSslRfc3161TimestampTokenProvider($client))->requestTokenHex(
+        $hex = (new NativeRfc3161TimestampTokenProvider($client))->requestTokenHex(
             self::DOCUMENT,
             [0, 4, 8, 4],
             new TimestampOptionsDto(tsaUrl: self::TSA_URL, hashAlgorithm: 'sha256', certReq: false),
@@ -161,7 +161,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Unsupported hash algorithm: md5');
 
-        (new OpenSslRfc3161TimestampTokenProvider($this->tsaClient()))->requestTokenHex('abcd', [0, 2, 2, 2], new TimestampOptionsDto(
+        (new NativeRfc3161TimestampTokenProvider($this->tsaClient()))->requestTokenHex('abcd', [0, 2, 2, 2], new TimestampOptionsDto(
             tsaUrl: self::TSA_URL,
             hashAlgorithm: 'md5',
         ));
@@ -173,7 +173,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
         $this->expectException(SignProcessException::class);
         $this->expectExceptionMessageMatches('/^TSA did not grant the timestamp request\. Status: rejection\. Failure info: badAlg\. Status text: .+/');
 
-        (new OpenSslRfc3161TimestampTokenProvider($this->tsaClient()))->requestTokenHex(
+        (new NativeRfc3161TimestampTokenProvider($this->tsaClient()))->requestTokenHex(
             self::DOCUMENT,
             [0, 4, 8, 4],
             new TimestampOptionsDto(tsaUrl: self::TSA_URL, hashAlgorithm: 'sha1'),
@@ -317,7 +317,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
     {
         $client = $this->tsaClient(tsaStatus: 201);
 
-        $hex = (new OpenSslRfc3161TimestampTokenProvider($client))->requestTokenHex(self::DOCUMENT, [0, 4, 8, 4], new TimestampOptionsDto(tsaUrl: self::TSA_URL));
+        $hex = (new NativeRfc3161TimestampTokenProvider($client))->requestTokenHex(self::DOCUMENT, [0, 4, 8, 4], new TimestampOptionsDto(tsaUrl: self::TSA_URL));
 
         self::assertSame($this->tokenOf($client->lastReply), hex2bin($hex));
     }
@@ -326,7 +326,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
     {
         $client = $this->tsaClient();
 
-        (new OpenSslRfc3161TimestampTokenProvider($client))->requestTokenHex(self::DOCUMENT, [0, 4, 8, 4], new TimestampOptionsDto(
+        (new NativeRfc3161TimestampTokenProvider($client))->requestTokenHex(self::DOCUMENT, [0, 4, 8, 4], new TimestampOptionsDto(
             tsaUrl: self::TSA_URL,
             username: 'user',
             password: 'pass',
@@ -342,7 +342,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
     public function test_request_token_hex_reuses_cached_oauth_token(): void
     {
         $client = $this->tsaClient(oauthBody: '{"access_token":"cached-token","expires_in":300}');
-        $provider = new OpenSslRfc3161TimestampTokenProvider($client);
+        $provider = new NativeRfc3161TimestampTokenProvider($client);
         $options = $this->oauthOptions();
 
         $provider->requestTokenHex('abcdefgh', [0, 4, 4, 4], $options);
@@ -360,7 +360,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
     public function test_request_token_hex_oauth_cache_uses_default_expiration_when_expires_in_is_missing(): void
     {
         $client = $this->tsaClient(oauthBody: '{"access_token":"token-without-exp"}');
-        $provider = new OpenSslRfc3161TimestampTokenProvider($client);
+        $provider = new NativeRfc3161TimestampTokenProvider($client);
         $options = $this->oauthOptions();
 
         $provider->requestTokenHex('abcdefgh', [0, 4, 4, 4], $options);
@@ -374,11 +374,11 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
     {
         // expires_in is raised to a 60s floor; a cached token within 30s of expiring is requested again.
         $client = $this->tsaClient(oauthBody: '{"access_token":"short","expires_in":1}');
-        $provider = new OpenSslRfc3161TimestampTokenProvider($client);
+        $provider = new NativeRfc3161TimestampTokenProvider($client);
         $options = $this->oauthOptions();
 
         $provider->requestTokenHex('abcdefgh', [0, 4, 4, 4], $options);
-        $cache = new \ReflectionProperty(OpenSslRfc3161TimestampTokenProvider::class, 'oauthTokenCache');
+        $cache = new \ReflectionProperty(NativeRfc3161TimestampTokenProvider::class, 'oauthTokenCache');
         /** @var array<string, array{token:string,expiresAt:int}> $entries */
         $entries = $cache->getValue();
         $key = array_key_first($entries);
@@ -397,7 +397,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
         $this->expectException(SignProcessException::class);
         $this->expectExceptionMessage('Invalid OAuth token response from TSA auth endpoint.');
 
-        (new OpenSslRfc3161TimestampTokenProvider($this->tsaClient(oauthBody: '{"token_type":"Bearer"}')))
+        (new NativeRfc3161TimestampTokenProvider($this->tsaClient(oauthBody: '{"token_type":"Bearer"}')))
             ->requestTokenHex('abcdef', [0, 3, 3, 3], $this->oauthOptions());
     }
 
@@ -406,7 +406,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
         $this->expectException(SignProcessException::class);
         $this->expectExceptionMessage('Could not fetch OAuth token from TSA auth endpoint. Status: 401. Transport error: none. Body: denied');
 
-        (new OpenSslRfc3161TimestampTokenProvider($this->tsaClient(oauthBody: 'denied', oauthStatus: 401)))
+        (new NativeRfc3161TimestampTokenProvider($this->tsaClient(oauthBody: 'denied', oauthStatus: 401)))
             ->requestTokenHex('abcdef', [0, 3, 3, 3], $this->oauthOptions());
     }
 
@@ -432,7 +432,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
             }
         };
 
-        return (new OpenSslRfc3161TimestampTokenProvider($client))->requestTokenHex(
+        return (new NativeRfc3161TimestampTokenProvider($client))->requestTokenHex(
             self::DOCUMENT,
             [0, 4, 8, 4],
             new TimestampOptionsDto(tsaUrl: self::TSA_URL),

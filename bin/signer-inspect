@@ -4,8 +4,8 @@
 declare(strict_types=1);
 
 use SignerPHP\PdfCore\Service\Inspect\ByteRangeInspector;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslCmsCertificateCollector;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\Inspect\OpenSslCmsSignerInfoInspector;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeCmsCertificateCollector;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Inspect\NativeCmsSignerInfoInspector;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureExtractor;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Inspect\PdfStructureInspector;
 use SignerPHP\PdfCore\Service\Inspect\SignatureDictionaryInspector;
@@ -161,8 +161,8 @@ $docTimestampSubFilterCount = preg_match_all('/\/SubFilter\s*\/ETSI\.RFC3161\b/'
 $docTimestampCount = max((int) $docTimestampTypeCount, (int) $docTimestampSubFilterCount);
 
 $signatureExtractor = new PdfSignatureExtractor();
-$certificateCollector = new OpenSslCmsCertificateCollector();
-$cmsInspector = new OpenSslCmsSignerInfoInspector();
+$certificateCollector = new NativeCmsCertificateCollector();
+$cmsInspector = new NativeCmsSignerInfoInspector();
 $structureInspector = new PdfStructureInspector();
 $dictionaryInspector = new SignatureDictionaryInspector();
 $byteRangeInspector = new ByteRangeInspector();

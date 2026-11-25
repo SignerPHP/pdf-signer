@@ -22,7 +22,7 @@ final readonly class DocumentTimestampApplier implements EncryptedDocumentTimest
         private PdfDocumentPreparer $documentPreparer = new PdfDocumentPreparer,
         private XrefContentResolver $xrefContentResolver = new XrefContentResolver,
         private DocumentTimestampObjectAssembler $timestampAssembler = new DocumentTimestampObjectAssembler,
-        private TimestampTokenProviderInterface $timestampTokenProvider = new OpenSslRfc3161TimestampTokenProvider,
+        private TimestampTokenProviderInterface $timestampTokenProvider = new NativeRfc3161TimestampTokenProvider,
     ) {}
 
     public function apply(string $signedPdfContent, TimestampOptionsDto $options): string

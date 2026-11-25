@@ -34,6 +34,19 @@ final class DoctorCliTest extends TestCase
         }
     }
 
+    public function test_doctor_does_not_require_external_binaries(): void
+    {
+        $report = json_decode($this->runCommand([PHP_BINARY, __DIR__.'/../../bin/signer-doctor', '--json']), true);
+        self::assertIsArray($report);
+
+        $names = array_column($report['checks'], 'name');
+        foreach ($names as $name) {
+            self::assertStringNotContainsStringIgnoringCase('binary', $name);
+            self::assertStringNotContainsStringIgnoringCase('qpdf', $name);
+        }
+        self::assertContains('PHP extension "openssl"', $names);
+    }
+
     /**
      * @param  array<int, string>  $args
      */

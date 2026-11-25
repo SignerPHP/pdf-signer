@@ -767,7 +767,7 @@ This inspection helps explain warnings reported by external validators (for exam
 
 ## Environment diagnostics via CLI
 
-Use `bin/signer-doctor` to quickly validate runtime dependencies (PHP version, required extensions, OpenSSL binary and `openssl ts`, and temporary directory access).
+Use `bin/signer-doctor` to quickly validate runtime dependencies (PHP version, required PHP extensions, and temporary directory access). No external binary is needed: CMS, RFC 3161 timestamps, OCSP, certificate chains and PDF encryption are handled in PHP.
 
 ```bash
 php bin/signer-doctor
@@ -914,14 +914,14 @@ php bin/signer-sign --help
 
 ## Operational requirements
 
-- For RFC3161 timestamping, host `openssl` must support `openssl ts`.
+- No external binary (`openssl` CLI, `qpdf`) is required: RFC 3161 timestamping, OCSP, CMS and chain verification run in PHP on top of `ext-openssl`.
 - PDF permissions protection is implemented in pure PHP (AES-256 by default, AES-128 with `keyLengthBits: 128`); no external binary is needed.
 - If you use the public default TSA, consider availability/SLA for production and prefer a dedicated provider.
 
 ## Implementation notes
 
 - A digital signature covers specific PDF bytes (`ByteRange`). Because of that, operations that rewrite file bytes should run before signing.
-- Validation checks `ByteRange` integrity and CMS/PKCS#7 cryptographic validity with OpenSSL. Optionally, it can validate trust chain (`enableTrustChainValidation(...)`) and Brazil policy (`withBrazilPolicy(...)`).
+- Validation checks `ByteRange` integrity and CMS/PKCS#7 cryptographic validity in PHP (`ext-openssl` primitives). Optionally, it can validate trust chain (`enableTrustChainValidation(...)`) and Brazil policy (`withBrazilPolicy(...)`).
 - Trust chain validation is native PHP (no `openssl` CLI) and covers a subset of RFC 5280: issuer chaining, signatures, validity at the reference time, CA basicConstraints/pathLen, keyCertSign and weak algorithms/keys. It fails closed on what it does not enforce (unknown critical extensions, name/policy constraints) and does not check revocation; OpenSSL `TRUSTED CERTIFICATE` entries in the trust store are ignored.
 - PAdES profiles:
   - Baseline-B: `SubFilter /ETSI.CAdES.detached`

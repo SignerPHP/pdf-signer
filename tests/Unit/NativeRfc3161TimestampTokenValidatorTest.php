@@ -7,11 +7,9 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslRfc3161TimestampTokenValidator;
-use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeRfc3161TimestampTokenValidator;
 
-final class OpenSslRfc3161TimestampTokenValidatorTest extends TestCase
+final class NativeRfc3161TimestampTokenValidatorTest extends TestCase
 {
     public static function verificationCases(): iterable
     {
@@ -39,7 +37,7 @@ final class OpenSslRfc3161TimestampTokenValidatorTest extends TestCase
             $this->expectException(SignProcessException::class);
         }
 
-        (new OpenSslRfc3161TimestampTokenValidator)->assertValid($token, $signature);
+        (new NativeRfc3161TimestampTokenValidator)->assertValid($token, $signature);
         if (! $mustReject) {
             self::assertTrue(true);
         }
@@ -54,21 +52,7 @@ final class OpenSslRfc3161TimestampTokenValidatorTest extends TestCase
         $this->expectException(SignProcessException::class);
         $this->expectExceptionMessage('CMS signature verification failed');
 
-        (new OpenSslRfc3161TimestampTokenValidator)->assertValid($token, 'signature-bytes');
-    }
-
-    public function test_a_process_runner_is_still_accepted_and_never_used(): void
-    {
-        $runner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                throw new \LogicException('No external process may run.');
-            }
-        };
-
-        (new OpenSslRfc3161TimestampTokenValidator($runner))->assertValid($this->generateToken('signature-bytes'), 'signature-bytes');
-        $this->addToAssertionCount(1);
+        (new NativeRfc3161TimestampTokenValidator)->assertValid($token, 'signature-bytes');
     }
 
     private function generateToken(string $signature): string

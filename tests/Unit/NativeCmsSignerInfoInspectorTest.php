@@ -6,13 +6,11 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\Inspect\OpenSslCmsSignerInfoInspector;
-use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Inspect\NativeCmsSignerInfoInspector;
 use SignerPHP\PdfSigner\Tests\Support\CmsTestFactory;
 
-final class OpenSslCmsSignerInfoInspectorTest extends TestCase
+final class NativeCmsSignerInfoInspectorTest extends TestCase
 {
     private const EMPTY = [
         'digest_algorithm' => null,
@@ -22,7 +20,7 @@ final class OpenSslCmsSignerInfoInspectorTest extends TestCase
 
     public function test_inspect_returns_empty_for_unusable_payloads(): void
     {
-        $inspector = new OpenSslCmsSignerInfoInspector;
+        $inspector = new NativeCmsSignerInfoInspector;
 
         self::assertSame(self::EMPTY, $inspector->inspect(''));
         self::assertSame(self::EMPTY, $inspector->inspect('0000'));
@@ -38,14 +36,14 @@ final class OpenSslCmsSignerInfoInspectorTest extends TestCase
             return $fields;
         });
 
-        self::assertSame(self::EMPTY, (new OpenSslCmsSignerInfoInspector)->inspect(bin2hex($cms)));
+        self::assertSame(self::EMPTY, (new NativeCmsSignerInfoInspector)->inspect(bin2hex($cms)));
     }
 
     public function test_inspect_reads_a_real_signature_with_whitespace_and_padding(): void
     {
         $hex = chunk_split(bin2hex(CmsTestFactory::sign('content')), 64, "\n").str_repeat('00', 32);
 
-        $result = (new OpenSslCmsSignerInfoInspector)->inspect($hex);
+        $result = (new NativeCmsSignerInfoInspector)->inspect($hex);
 
         self::assertSame('sha256', $result['digest_algorithm']);
         self::assertSame('rsaEncryption', $result['signature_algorithm']);
@@ -66,7 +64,7 @@ final class OpenSslCmsSignerInfoInspectorTest extends TestCase
     #[DataProvider('algorithms')]
     public function test_inspect_names_algorithms_like_openssl(string $fixture, string $digest, string $signature): void
     {
-        $result = (new OpenSslCmsSignerInfoInspector)->inspect(bin2hex(CmsTestFactory::fixture($fixture)));
+        $result = (new NativeCmsSignerInfoInspector)->inspect(bin2hex(CmsTestFactory::fixture($fixture)));
 
         self::assertSame($digest, $result['digest_algorithm']);
         self::assertSame($signature, $result['signature_algorithm']);
@@ -74,7 +72,7 @@ final class OpenSslCmsSignerInfoInspectorTest extends TestCase
 
     public function test_inspect_names_ecdsa_signatures(): void
     {
-        $result = (new OpenSslCmsSignerInfoInspector)->inspect(bin2hex(CmsTestFactory::sign('content', identity: CmsTestFactory::identity('ec'))));
+        $result = (new NativeCmsSignerInfoInspector)->inspect(bin2hex(CmsTestFactory::sign('content', identity: CmsTestFactory::identity('ec'))));
 
         self::assertSame('sha256', $result['digest_algorithm']);
         self::assertSame('ecdsa-with-SHA256', $result['signature_algorithm']);
@@ -105,19 +103,6 @@ final class OpenSslCmsSignerInfoInspectorTest extends TestCase
             return $fields;
         });
 
-        self::assertSame($expected, (new OpenSslCmsSignerInfoInspector)->inspect(bin2hex($cms))['cms_signing_time']);
-    }
-
-    public function test_a_process_runner_is_still_accepted_and_never_used(): void
-    {
-        $runner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                throw new \LogicException('No external process may run.');
-            }
-        };
-
-        self::assertSame('sha256', (new OpenSslCmsSignerInfoInspector($runner))->inspect(bin2hex(CmsTestFactory::sign('content')))['digest_algorithm']);
+        self::assertSame($expected, (new NativeCmsSignerInfoInspector)->inspect(bin2hex($cms))['cms_signing_time']);
     }
 }

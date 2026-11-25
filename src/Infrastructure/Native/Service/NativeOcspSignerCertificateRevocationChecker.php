@@ -6,7 +6,6 @@ namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignerCertificateRevocationCheckerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspCertificate;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspRequest;
@@ -36,7 +35,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspSingleResponse;
  * The request, the response parsing and the verification are native PHP (ext-openssl);
  * no OpenSSL CLI is involved.
  */
-final readonly class OpenSslOcspSignerCertificateRevocationChecker implements SignerCertificateRevocationCheckerInterface
+final readonly class NativeOcspSignerCertificateRevocationChecker implements SignerCertificateRevocationCheckerInterface
 {
     private const CLOCK_SKEW_SECONDS = 300;
 
@@ -46,12 +45,8 @@ final readonly class OpenSslOcspSignerCertificateRevocationChecker implements Si
 
     private const MAX_CHAIN_DEPTH = 10;
 
-    /**
-     * @param  ProcessRunnerInterface  $processRunner  @deprecated unused since OCSP is handled natively; kept for constructor compatibility
-     */
     public function __construct(
         private X509ExtensionUrlExtractor $urlExtractor = new X509ExtensionUrlExtractor,
-        private ProcessRunnerInterface $processRunner = new ShellProcessRunner,
         private HttpClientInterface $httpClient = new CurlHttpClient,
     ) {}
 

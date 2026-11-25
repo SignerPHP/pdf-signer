@@ -7,15 +7,13 @@ namespace SignerPHP\PdfSigner\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeOcspSignerCertificateRevocationChecker;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspCertificate;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspRequest;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslOcspSignerCertificateRevocationChecker;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\X509ExtensionUrlExtractor;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\HttpResponse;
 use SignerPHP\PdfSigner\Tests\Support\OcspTestPki;
 
-final class OpenSslOcspSignerCertificateRevocationCheckerTest extends TestCase
+final class NativeOcspSignerCertificateRevocationCheckerTest extends TestCase
 {
     private const NONCE_EXTENSION = "\x06\x09\x2B\x06\x01\x05\x05\x07\x30\x01\x02\x04\x12\x04\x10";
 
@@ -280,16 +278,6 @@ final class OpenSslOcspSignerCertificateRevocationCheckerTest extends TestCase
         self::assertTrue($method->invoke($checker, self::$pki->pem('ca'), $this->chain(), [self::$pki->pem('root')]));
     }
 
-    public function test_process_runner_is_never_used(): void
-    {
-        $runner = $this->createMock(ProcessRunnerInterface::class);
-        $runner->expects(self::never())->method('run');
-        $http = $this->responder(fn (string $request): string => self::$pki->respond($request));
-
-        (new OpenSslOcspSignerCertificateRevocationChecker(new X509ExtensionUrlExtractor, $runner, $http))
-            ->assertNotRevoked(self::$pki->pem('leaf'), $this->chain());
-    }
-
     /**
      * @return list<string>
      */
@@ -298,9 +286,9 @@ final class OpenSslOcspSignerCertificateRevocationCheckerTest extends TestCase
         return [self::$pki->pem('ca'), self::$pki->pem('root')];
     }
 
-    private function checker(HttpClientInterface $http): OpenSslOcspSignerCertificateRevocationChecker
+    private function checker(HttpClientInterface $http): NativeOcspSignerCertificateRevocationChecker
     {
-        return new OpenSslOcspSignerCertificateRevocationChecker(httpClient: $http);
+        return new NativeOcspSignerCertificateRevocationChecker(httpClient: $http);
     }
 
     /**

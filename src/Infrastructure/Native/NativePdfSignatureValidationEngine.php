@@ -14,20 +14,20 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PdfSignatureExtractorInte
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCryptoVerifierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureTrustVerifierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimeAwareSignatureTrustVerifierInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslBrazilPolicyListVerifier;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslSignatureCryptoVerifier;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslSignatureTrustVerifier;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslTimestampTokenVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeBrazilPolicyListVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeSignatureCryptoVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeSignatureTrustVerifier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeTimestampTokenVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureExtractor;
 
 final readonly class NativePdfSignatureValidationEngine implements PdfSignatureValidationEngineInterface
 {
     public function __construct(
         private PdfSignatureExtractorInterface $signatureExtractor = new PdfSignatureExtractor,
-        private SignatureCryptoVerifierInterface $cryptoVerifier = new OpenSslSignatureCryptoVerifier,
-        private SignatureTrustVerifierInterface $trustVerifier = new OpenSslSignatureTrustVerifier,
-        private BrazilPolicyListVerifierInterface $policyVerifier = new OpenSslBrazilPolicyListVerifier,
-        private SignatureCryptoVerifierInterface $timestampVerifier = new OpenSslTimestampTokenVerifier,
+        private SignatureCryptoVerifierInterface $cryptoVerifier = new NativeSignatureCryptoVerifier,
+        private SignatureTrustVerifierInterface $trustVerifier = new NativeSignatureTrustVerifier,
+        private BrazilPolicyListVerifierInterface $policyVerifier = new NativeBrazilPolicyListVerifier,
+        private SignatureCryptoVerifierInterface $timestampVerifier = new NativeTimestampTokenVerifier,
     ) {}
 
     public function validate(ValidatePdfRequestDto $request): SignatureValidationResultDto

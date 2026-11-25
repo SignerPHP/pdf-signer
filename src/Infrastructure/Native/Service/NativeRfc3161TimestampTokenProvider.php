@@ -8,7 +8,6 @@ use SignerPHP\PdfSigner\Application\DTO\HashAlgorithm;
 use SignerPHP\PdfSigner\Application\DTO\TimestampOptionsDto;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\StrictDerReader;
@@ -17,7 +16,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\StrictDerReader;
  * Requests an RFC 3161 timestamp token over HTTP. The TimeStampReq is built and the TimeStampResp
  * is read in PHP, so no external binary is needed.
  */
-final class OpenSslRfc3161TimestampTokenProvider implements TimestampTokenProviderInterface
+final class NativeRfc3161TimestampTokenProvider implements TimestampTokenProviderInterface
 {
     private const OID_SIGNED_DATA = '1.2.840.113549.1.7.2';
 
@@ -48,14 +47,8 @@ final class OpenSslRfc3161TimestampTokenProvider implements TimestampTokenProvid
      */
     private static array $oauthTokenCache = [];
 
-    /**
-     * @param  ProcessRunnerInterface  $processRunner  Deprecated and unused since the request and the
-     *                                                 response are handled natively; kept for backward compatibility.
-     */
     public function __construct(
         private readonly HttpClientInterface $httpClient = new CurlHttpClient,
-        /** @deprecated No longer used: no external process is run anymore. */
-        private readonly ProcessRunnerInterface $processRunner = new ShellProcessRunner,
     ) {}
 
     public function requestTokenHex(string $signableDocument, array $byteRange, TimestampOptionsDto $options): string

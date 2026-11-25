@@ -17,7 +17,7 @@ use SignerPHP\PdfSigner\Application\DTO\SigningInputType;
 use SignerPHP\PdfSigner\Domain\Exception\SignerException;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\X509Certificate;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslCmsCertificateCollector;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeCmsCertificateCollector;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureExtractor;
 use SignerPHP\PdfSigner\Presentation\ExternalSignerBuilder;
 use SignerPHP\PdfSigner\Presentation\Signer;
@@ -157,7 +157,7 @@ final class ExternalSigningTest extends TestCase
         $signature = self::signRsaDigest($prepared->payload->input(), $signer['pkey'], 'sha256');
         $signedPdf = $builder->complete($prepared->state, $signature);
         $extractedSignatures = (new PdfSignatureExtractor)->extract($signedPdf);
-        $certificates = (new OpenSslCmsCertificateCollector)->collectDerCertificates($extractedSignatures[0]->signatureHex);
+        $certificates = (new NativeCmsCertificateCollector)->collectDerCertificates($extractedSignatures[0]->signatureHex);
 
         expect($state['certificateChain'])->toBe([base64_encode($chainCertificate)])
             ->and($extractedSignatures)->toHaveCount(1)

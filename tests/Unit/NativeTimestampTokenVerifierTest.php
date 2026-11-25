@@ -5,13 +5,11 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Asn1Node;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\DetachedCmsAssembler;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProvider;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslTimestampTokenVerifier;
-use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\ProcessResult;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeTimestampTokenVerifier;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignatureCryptoVerification;
 use SignerPHP\PdfSigner\Tests\Support\CmsTestFactory;
 use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
@@ -19,7 +17,7 @@ use SignerPHP\PdfSigner\Tests\Support\Pkcs12Fixture;
 /**
  * Uses real RFC 3161 tokens issued by a throwaway TSA through `openssl ts -reply`.
  */
-final class OpenSslTimestampTokenVerifierTest extends TestCase
+final class NativeTimestampTokenVerifierTest extends TestCase
 {
     private const CONTENT = "%PDF-1.7 bytes covered by the document timestamp ByteRange\n";
 
@@ -66,7 +64,7 @@ final class OpenSslTimestampTokenVerifierTest extends TestCase
     public function test_accepts_a_real_token_over_the_byte_range(): void
     {
         foreach (['sha256', 'sha512'] as $algorithm) {
-            $result = (new OpenSslTimestampTokenVerifier)->verify(self::CONTENT, $this->contentsHex($algorithm.'.tst'));
+            $result = (new NativeTimestampTokenVerifier)->verify(self::CONTENT, $this->contentsHex($algorithm.'.tst'));
 
             self::assertTrue($result->valid, $algorithm.': '.($result->message ?? ''));
         }
@@ -74,7 +72,7 @@ final class OpenSslTimestampTokenVerifierTest extends TestCase
 
     public function test_rejects_a_token_whose_imprint_does_not_match_the_byte_range(): void
     {
-        $result = (new OpenSslTimestampTokenVerifier)->verify(self::CONTENT.'tampered', $this->contentsHex('sha256.tst'));
+        $result = (new NativeTimestampTokenVerifier)->verify(self::CONTENT.'tampered', $this->contentsHex('sha256.tst'));
 
         self::assertFalse($result->valid);
         self::assertSame('Timestamp message imprint does not match the signed ByteRange.', $result->message);
@@ -86,7 +84,7 @@ final class OpenSslTimestampTokenVerifierTest extends TestCase
         // Flip one byte of the TSA signature value, which sits at the end of the SignerInfo.
         $token[strlen($token) - 10] = chr(ord($token[strlen($token) - 10]) ^ 0xFF);
 
-        $result = (new OpenSslTimestampTokenVerifier)->verify(self::CONTENT, str_pad(bin2hex($token), 2 * strlen($token) + 64, '0'));
+        $result = (new NativeTimestampTokenVerifier)->verify(self::CONTENT, str_pad(bin2hex($token), 2 * strlen($token) + 64, '0'));
 
         self::assertFalse($result->valid);
         self::assertStringStartsWith('Timestamp token signature is invalid', (string) $result->message);
@@ -97,7 +95,7 @@ final class OpenSslTimestampTokenVerifierTest extends TestCase
         $bundle = Pkcs12Fixture::load();
         $cms = (new DetachedCmsAssembler)->assemble(self::CONTENT, $bundle['cert'], new LocalPrivateKeySignatureProvider($bundle['pkey']));
 
-        $result = (new OpenSslTimestampTokenVerifier)->verify(self::CONTENT, bin2hex($cms));
+        $result = (new NativeTimestampTokenVerifier)->verify(self::CONTENT, bin2hex($cms));
 
         self::assertFalse($result->valid);
         self::assertSame('Document timestamp does not encapsulate an RFC 3161 TSTInfo.', $result->message);
@@ -105,7 +103,7 @@ final class OpenSslTimestampTokenVerifierTest extends TestCase
 
     public function test_rejects_empty_or_malformed_contents(): void
     {
-        $verifier = new OpenSslTimestampTokenVerifier;
+        $verifier = new NativeTimestampTokenVerifier;
 
         self::assertFalse($verifier->verify(self::CONTENT, str_repeat('0', 64))->valid);
         self::assertFalse($verifier->verify(self::CONTENT, 'not-hex')->valid);
@@ -141,19 +139,6 @@ final class OpenSslTimestampTokenVerifierTest extends TestCase
         self::assertSame('Timestamp message imprint uses an unsupported hash algorithm.', $result->message);
     }
 
-    public function test_a_process_runner_is_still_accepted_and_never_used(): void
-    {
-        $runner = new class implements ProcessRunnerInterface
-        {
-            public function run(string $command): ProcessResult
-            {
-                throw new \LogicException('No external process may run.');
-            }
-        };
-
-        self::assertTrue((new OpenSslTimestampTokenVerifier($runner))->verify(self::CONTENT, $this->contentsHex('sha256.tst'))->valid);
-    }
-
     /**
      * Signs $tstInfo as a real TimeStampToken: an attached CMS without signed attributes, so its
      * encapsulated content type can be set to id-ct-TSTInfo without invalidating the signature.
@@ -172,7 +157,7 @@ final class OpenSslTimestampTokenVerifierTest extends TestCase
             return $fields;
         });
 
-        return (new OpenSslTimestampTokenVerifier)->verify(self::CONTENT, str_pad(bin2hex($token), 2 * strlen($token) + 64, '0'));
+        return (new NativeTimestampTokenVerifier)->verify(self::CONTENT, str_pad(bin2hex($token), 2 * strlen($token) + 64, '0'));
     }
 
     private function contentsHex(string $file): string

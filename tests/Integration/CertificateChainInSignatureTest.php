@@ -12,7 +12,7 @@ use SignerPHP\PdfSigner\Application\DTO\SignatureProfile;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\DetachedCmsAssembler;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\X509Certificate;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\LocalPrivateKeySignatureProvider;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslCmsCertificateCollector;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativeCmsCertificateCollector;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\PdfSignatureExtractor;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Pkcs7Signer;
 use SignerPHP\PdfSigner\Presentation\Signer;
@@ -100,7 +100,7 @@ final class CertificateChainInSignatureTest extends TestCase
         self::assertSame(0, $exitCode, implode("\n", $output));
 
         foreach ([bin2hex($cms), $localHex] as $hex) {
-            $certificates = (new OpenSslCmsCertificateCollector)->collectDerCertificates($hex);
+            $certificates = (new NativeCmsCertificateCollector)->collectDerCertificates($hex);
             self::assertCount(3, $certificates);
             foreach ([$leaf, $intermediate, $root] as $pem) {
                 self::assertContains(X509Certificate::fromPem($pem)->der, $certificates);
@@ -132,7 +132,7 @@ final class CertificateChainInSignatureTest extends TestCase
             static fn (string $der): string => (string) openssl_x509_parse(
                 "-----BEGIN CERTIFICATE-----\n".chunk_split(base64_encode($der), 64, "\n")."-----END CERTIFICATE-----\n"
             )['subject']['CN'],
-            (new OpenSslCmsCertificateCollector)->collectDerCertificates($signature->signatureHex),
+            (new NativeCmsCertificateCollector)->collectDerCertificates($signature->signatureHex),
         );
 
         sort($subjects);

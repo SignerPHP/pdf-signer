@@ -5,22 +5,17 @@ declare(strict_types=1);
 namespace SignerPHP\PdfSigner\Infrastructure\Native\Service;
 
 use SignerPHP\PdfSigner\Application\DTO\SignatureValidationOptionsDto;
-use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignatureCertificateCollectorInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimeAwareSignatureTrustVerifierInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\X509PathValidator;
 use SignerPHP\PdfSigner\Infrastructure\Native\ValueObject\SignatureTrustVerification;
 
-final readonly class OpenSslSignatureTrustVerifier implements TimeAwareSignatureTrustVerifierInterface
+final readonly class NativeSignatureTrustVerifier implements TimeAwareSignatureTrustVerifierInterface
 {
     public function __construct(
-        private SignatureCertificateCollectorInterface $certificateCollector = new OpenSslCmsCertificateCollector,
+        private SignatureCertificateCollectorInterface $certificateCollector = new NativeCmsCertificateCollector,
         private IcpBrasilTrustAnchorBundleProvider $trustAnchorBundleProvider = new IcpBrasilTrustAnchorBundleProvider,
-        /**
-         * @deprecated Unused since certificate chain validation is native PHP; kept for constructor compatibility.
-         */
-        private ?ProcessRunnerInterface $processRunner = null,
         private X509PathValidator $pathValidator = new X509PathValidator,
     ) {}
 

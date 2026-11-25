@@ -32,7 +32,7 @@ final readonly class SignedBufferBuilder implements EncryptedSignedBufferBuilder
         private Pkcs7SignerInterface $pkcs7Signer,
         private DocumentTimestampApplierInterface $documentTimestampApplier = new DocumentTimestampApplier,
         private LongTermValidationApplierInterface $longTermValidationApplier = new DocumentLongTermValidationApplier,
-        private SignerCertificateRevocationCheckerInterface $revocationChecker = new OpenSslOcspSignerCertificateRevocationChecker,
+        private SignerCertificateRevocationCheckerInterface $revocationChecker = new NativeOcspSignerCertificateRevocationChecker,
     ) {}
 
     public function build(
