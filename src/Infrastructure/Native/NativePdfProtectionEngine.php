@@ -8,12 +8,12 @@ use SignerPHP\PdfSigner\Application\Contract\PdfProtectionEngineInterface;
 use SignerPHP\PdfSigner\Application\DTO\ProtectPdfRequestDto;
 use SignerPHP\PdfSigner\Domain\Exception\ProtectionProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\PdfProtectionApplierInterface;
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\QpdfPdfProtectionApplier;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\NativePdfProtectionApplier;
 
 final readonly class NativePdfProtectionEngine implements PdfProtectionEngineInterface
 {
     public function __construct(
-        private PdfProtectionApplierInterface $protectionApplier = new QpdfPdfProtectionApplier,
+        private PdfProtectionApplierInterface $protectionApplier = new NativePdfProtectionApplier,
     ) {}
 
     public function protect(ProtectPdfRequestDto $request): string

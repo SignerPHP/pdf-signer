@@ -12,7 +12,7 @@ final class PdfFixtureFactory
         $objects = [
             1 => '<< /Type /Catalog /Pages 2 0 R >>',
             2 => '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-            3 => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R >>',
+            3 => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> /Contents 4 0 R >>',
             4 => '<< /Length '.strlen($stream)." >>\nstream\n".$stream.'endstream',
             5 => '<< /Producer (SignerPHP Tests) >>',
         ];

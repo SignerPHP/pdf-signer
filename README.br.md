@@ -489,6 +489,18 @@ $signedProtectedPdf = Signer::signer()
 file_put_contents('/tmp/output-protected-signed.pdf', $signedProtectedPdf);
 ```
 
+A revisão da assinatura de um PDF protegido é cifrada com a chave do documento, como o restante do arquivo (só o `/Contents` da assinatura fica em claro, como exige a ISO 32000-2). O mesmo vale ao assinar um PDF que já estava protegido, por exemplo numa segunda assinatura: um PDF sem senha de usuário é aberto automaticamente; caso contrário, informe a senha de usuário ou de dono.
+
+```php
+$segundaAssinatura = Signer::signer()
+ ->withPdfContent(file_get_contents('/tmp/saida-protegida-assinada.pdf'))
+ ->withPdfPassword('senha-de-usuario-ou-de-dono') // dispensável quando o PDF não tem senha de usuário
+ ->withCertificatePath('/tmp/outro-certificado.pfx', 'senha-secreta')
+ ->sign();
+```
+
+São aceitos PDFs protegidos com AES-256 (R6), AES-128 (R4) ou RC4 (R2/R3).
+
 ### 9) Validar assinaturas digitais de um PDF
 
 ```php
@@ -623,7 +635,7 @@ Essa inspeção ajuda a explicar avisos em validadores externos (ex.: indisponib
 
 ## Diagnóstico de ambiente via CLI
 
-Use `bin/signer-doctor` para validar rapidamente dependências de runtime (versão do PHP, extensões obrigatórias, binário OpenSSL e `openssl ts`, `qpdf` e acesso ao diretório temporário).
+Use `bin/signer-doctor` para validar rapidamente dependências de runtime (versão do PHP, extensões obrigatórias, binário OpenSSL e `openssl ts` e acesso ao diretório temporário).
 
 ```bash
 php bin/signer-doctor
@@ -737,7 +749,7 @@ php bin/signer-sign --help
 ## Requisitos operacionais
 
 - Para timestamp RFC3161, o host precisa ter `openssl` com suporte ao comando `openssl ts`.
-- Para proteção de PDF por permissões, o host precisa ter `qpdf` instalado.
+- A proteção de PDF por permissões é feita em PHP puro (AES-256 por padrão, AES-128 com `keyLengthBits: 128`); nenhum binário externo é necessário.
 - Se usar TSA público padrão, considere disponibilidade/SLA em produção e prefira um provedor dedicado.
 
 ## Notas de implementação
