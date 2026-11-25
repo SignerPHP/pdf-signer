@@ -118,15 +118,6 @@ $checks[] = [
     'details' => $opensslExists ? ($opensslTs['ok'] ? 'supported' : 'not supported') : 'openssl missing',
 ];
 
-$qpdfExists = commandExists('qpdf');
-$qpdfVersion = $qpdfExists ? runCommand('qpdf --version') : ['ok' => false, 'output' => 'not found'];
-$checks[] = [
-    'name' => 'qpdf binary available (PDF protection feature)',
-    'required' => false,
-    'ok' => $qpdfExists,
-    'details' => $qpdfVersion['output'],
-];
-
 $tmp = sys_get_temp_dir();
 $tmpWritable = is_dir($tmp) && is_writable($tmp);
 $checks[] = [

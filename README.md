@@ -755,7 +755,7 @@ This inspection helps explain warnings reported by external validators (for exam
 
 ## Environment diagnostics via CLI
 
-Use `bin/signer-doctor` to quickly validate runtime dependencies (PHP version, required extensions, OpenSSL binary and `openssl ts`, `qpdf`, and temporary directory access).
+Use `bin/signer-doctor` to quickly validate runtime dependencies (PHP version, required extensions, OpenSSL binary and `openssl ts`, and temporary directory access).
 
 ```bash
 php bin/signer-doctor
@@ -903,7 +903,7 @@ php bin/signer-sign --help
 ## Operational requirements
 
 - For RFC3161 timestamping, host `openssl` must support `openssl ts`.
-- For PDF permissions protection, host `qpdf` must be installed.
+- PDF permissions protection is implemented in pure PHP (AES-256 by default, AES-128 with `keyLengthBits: 128`); no external binary is needed.
 - If you use the public default TSA, consider availability/SLA for production and prefer a dedicated provider.
 
 ## Implementation notes

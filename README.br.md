@@ -623,7 +623,7 @@ Essa inspeção ajuda a explicar avisos em validadores externos (ex.: indisponib
 
 ## Diagnóstico de ambiente via CLI
 
-Use `bin/signer-doctor` para validar rapidamente dependências de runtime (versão do PHP, extensões obrigatórias, binário OpenSSL e `openssl ts`, `qpdf` e acesso ao diretório temporário).
+Use `bin/signer-doctor` para validar rapidamente dependências de runtime (versão do PHP, extensões obrigatórias, binário OpenSSL e `openssl ts` e acesso ao diretório temporário).
 
 ```bash
 php bin/signer-doctor
@@ -737,7 +737,7 @@ php bin/signer-sign --help
 ## Requisitos operacionais
 
 - Para timestamp RFC3161, o host precisa ter `openssl` com suporte ao comando `openssl ts`.
-- Para proteção de PDF por permissões, o host precisa ter `qpdf` instalado.
+- A proteção de PDF por permissões é feita em PHP puro (AES-256 por padrão, AES-128 com `keyLengthBits: 128`); nenhum binário externo é necessário.
 - Se usar TSA público padrão, considere disponibilidade/SLA em produção e prefira um provedor dedicado.
 
 ## Notas de implementação
