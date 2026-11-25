@@ -128,7 +128,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
 
             [$tag, $nonce, $offset] = Der::readTlvStrict($request, strlen($prefix));
             self::assertSame(0x02, $tag);
-            self::assertSame(8, strlen($nonce));
+            self::assertSame(16, strlen($nonce));
             self::assertLessThan(0x80, ord($nonce[0]));
             self::assertSame("\x01\x01\xFF", substr($request, $offset));
             $nonces[] = $nonce;
@@ -233,7 +233,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
         $granted = Der::sequence("\x02\x01\x00");
         $tstInfoOid = Der::objectIdentifier('1.2.840.113549.1.9.16.1.4');
         $token = static fn (string $contentType, string $encap): string => Der::sequence(
-            Der::objectIdentifier($contentType).Der::contextSpecific(0, Der::sequence("\x02\x01\x03".Der::set('').$encap))
+            Der::objectIdentifier($contentType).Der::contextSpecific(0, Der::sequence("\x02\x01\x03".Der::set('').$encap.Der::set('')))
         );
 
         yield 'not DER' => ['not-der', 'DER value exceeds its container.'];
@@ -248,7 +248,7 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
             'timeStampToken is not a CMS SignedData.',
         ];
         yield 'token without TSTInfo' => [
-            Der::sequence($granted.$token('1.2.840.113549.1.7.2', Der::sequence(Der::objectIdentifier('1.2.840.113549.1.7.1')))),
+            Der::sequence($granted.$token('1.2.840.113549.1.7.2', Der::sequence(Der::objectIdentifier('1.2.840.113549.1.7.1').Der::contextSpecific(0, Der::octetString(''))))),
             'timeStampToken does not encapsulate a TSTInfo.',
         ];
         yield 'TSTInfo not an OCTET STRING' => [
@@ -259,6 +259,33 @@ final class OpenSslRfc3161TimestampTokenProviderTest extends TestCase
             Der::sequence($granted.$token('1.2.840.113549.1.7.2', Der::sequence($tstInfoOid.Der::contextSpecific(0, Der::octetString(Der::set('')))))),
             'TSTInfo is malformed.',
         ];
+        yield 'bytes after the TSTInfo' => [
+            Der::sequence($granted.$token('1.2.840.113549.1.7.2', Der::sequence($tstInfoOid.Der::contextSpecific(0, Der::octetString(Der::sequence('')."\x00"))))),
+            'Trailing bytes after DER element.',
+        ];
+        yield 'SignedData without signerInfos' => [
+            Der::sequence($granted.Der::sequence(Der::objectIdentifier('1.2.840.113549.1.7.2').Der::contextSpecific(0, Der::sequence("\x02\x01\x03")))),
+            'SignedData is malformed.',
+        ];
+        yield 'bytes after the TimeStampResp' => [Der::sequence($granted)."\x00", 'Trailing bytes after DER element.'];
+        yield 'extra element in TimeStampResp' => [Der::sequence($granted.Der::sequence('').Der::null()), 'TimeStampResp is malformed.'];
+        yield 'unexpected element in PKIStatusInfo' => [Der::sequence(Der::sequence("\x02\x01\x02\x02\x01\x00")), 'PKIStatusInfo is malformed.'];
+        yield 'status text not a UTF8String' => [Der::sequence(Der::sequence("\x02\x01\x02".Der::sequence(Der::octetString('busy')))), 'PKIFreeText is malformed.'];
+        yield 'indefinite length' => ["\x30\x80".$granted."\x00\x00", 'Indefinite length is not allowed in DER.'];
+        yield 'long form for a short length' => ["\x30\x81".chr(strlen($granted)).$granted, 'Non-minimal DER length.'];
+        yield 'length with a leading zero byte' => ["\x30\x82\x00".chr(strlen($granted)).$granted, 'Non-minimal DER length.'];
+        yield 'length over four bytes' => ["\x30\x85\x00\x00\x00\x00\x05", 'Unsupported DER length.'];
+        yield 'truncated length' => ["\x30\x82\x01", 'Truncated DER length.'];
+        yield 'truncated element' => ["\x30", 'Truncated DER element.'];
+        yield 'high-tag-number form' => ["\x1F\x01\x00", 'Unsupported DER high-tag-number form.'];
+    }
+
+    public function test_request_token_hex_rejects_bytes_after_a_real_reply(): void
+    {
+        $this->expectException(SignProcessException::class);
+        $this->expectExceptionMessage('Could not extract RFC3161 token from TSA response. Trailing bytes after DER element.');
+
+        $this->requestWithReply((string) file_get_contents(self::$dir.'/other-nonce.tsr')."\x00");
     }
 
     #[DataProvider('malformedReplies')]

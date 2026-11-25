@@ -11,6 +11,7 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\TimestampTokenProviderInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\StrictDerReader;
 
 /**
  * Requests an RFC 3161 timestamp token over HTTP. The TimeStampReq is built and the TimeStampResp
@@ -94,12 +95,12 @@ final class OpenSslRfc3161TimestampTokenProvider implements TimestampTokenProvid
     }
 
     /**
-     * A positive 64-bit random nonce; the top byte is kept in
-     * 0x40..0x7F so the INTEGER is minimally encoded and needs no sign byte.
+     * A positive 128-bit INTEGER nonce with 126 random bits: the top byte is kept in 0x40..0x7F
+     * so the value is minimally encoded and needs no sign byte.
      */
     private function generateNonce(): string
     {
-        $nonce = random_bytes(8);
+        $nonce = random_bytes(16);
         $nonce[0] = chr((ord($nonce[0]) & 0x3F) | 0x40);
 
         return $nonce;
@@ -239,27 +240,23 @@ final class OpenSslRfc3161TimestampTokenProvider implements TimestampTokenProvid
 
     /**
      * Reads a TimeStampResp, checks its PKIStatusInfo and returns the DER of its timeStampToken
-     * (a CMS ContentInfo), after checking that the TSTInfo answers this request.
+     * (a CMS ContentInfo), after checking that the TSTInfo answers this request. The reply must be
+     * strict DER, and each structure read must be complete, with nothing after it.
      */
     private function extractTimeStampToken(string $reply, string $hashOid, string $digest, string $nonce): string
     {
         try {
-            [$tag, $response] = Der::readTlvStrict($reply);
-            $this->expectTag($tag, 0x30, 'TimeStampResp');
+            // TimeStampResp ::= SEQUENCE { status PKIStatusInfo, timeStampToken TimeStampToken OPTIONAL }
+            $response = $this->children($this->exact($reply, 0x30, 'TimeStampResp'), 1, 2, 'TimeStampResp');
+            $this->assertGranted($this->value($response[0], 0x30, 'PKIStatusInfo'));
 
-            [$tag, $statusInfo, $offset] = Der::readTlvStrict($response);
-            $this->expectTag($tag, 0x30, 'PKIStatusInfo');
-            $this->assertGranted($statusInfo);
-
-            if ($offset >= strlen($response)) {
+            if (! isset($response[1])) {
                 throw new \UnexpectedValueException('TimeStampResp has no timeStampToken.');
             }
 
-            [$tag, , $end] = Der::readTlvStrict($response, $offset);
-            $this->expectTag($tag, 0x30, 'timeStampToken');
-            $token = substr($response, $offset, $end - $offset);
-
-            $this->assertTstInfoMatchesRequest($this->readTstInfo($token), $hashOid, $digest, $nonce);
+            $token = $response[1][2];
+            $tstInfo = $this->readTstInfo($this->value($response[1], 0x30, 'timeStampToken'));
+            $this->assertTstInfoMatchesRequest($tstInfo, $hashOid, $digest, $nonce);
         } catch (\UnexpectedValueException $e) {
             throw new SignProcessException('Could not extract RFC3161 token from TSA response. '.$e->getMessage(), 0, $e);
         }
@@ -267,24 +264,29 @@ final class OpenSslRfc3161TimestampTokenProvider implements TimestampTokenProvid
         return $token;
     }
 
+    /**
+     * PKIStatusInfo ::= SEQUENCE { status PKIStatus, statusString PKIFreeText OPTIONAL,
+     * failInfo PKIFailureInfo OPTIONAL }.
+     */
     private function assertGranted(string $statusInfo): void
     {
-        [$tag, $statusValue, $offset] = Der::readTlvStrict($statusInfo);
-        $this->expectTag($tag, 0x02, 'PKIStatus');
-        $status = $this->smallInteger($statusValue);
-        if ($status === 0 || $status === 1) {
-            return;
-        }
+        $elements = $this->children($statusInfo, 1, 3, 'PKIStatusInfo');
+        $status = $this->smallInteger($this->value($elements[0], 0x02, 'PKIStatus'));
 
         $texts = [];
         $failures = [];
-        while ($offset < strlen($statusInfo)) {
-            [$tag, $value, $offset] = Der::readTlvStrict($statusInfo, $offset);
-            if ($tag === 0x30) {
-                $texts = $this->freeText($value);
-            } elseif ($tag === 0x03) {
-                $failures = $this->failureInfo($value);
+        foreach (array_slice($elements, 1) as $element) {
+            if ($element[0] === 0x30 && $texts === [] && $failures === []) {
+                $texts = $this->freeText($element[1]);
+            } elseif ($element[0] === 0x03 && $failures === []) {
+                $failures = $this->failureInfo($element[1]);
+            } else {
+                throw new \UnexpectedValueException('PKIStatusInfo is malformed.');
             }
+        }
+
+        if ($status === 0 || $status === 1) {
+            return;
         }
 
         throw new SignProcessException(sprintf(
@@ -309,14 +311,10 @@ final class OpenSslRfc3161TimestampTokenProvider implements TimestampTokenProvid
      */
     private function freeText(string $sequence): array
     {
-        $texts = [];
-        $offset = 0;
-        while ($offset < strlen($sequence)) {
-            [, $text, $offset] = Der::readTlvStrict($sequence, $offset);
-            $texts[] = $text;
-        }
-
-        return $texts;
+        return array_map(
+            fn (array $text): string => $this->value($text, 0x0C, 'PKIFreeText'),
+            StrictDerReader::children($sequence),
+        );
     }
 
     /**
@@ -339,35 +337,26 @@ final class OpenSslRfc3161TimestampTokenProvider implements TimestampTokenProvid
      * ContentInfo { id-signedData, [0] SignedData { version, digestAlgorithms,
      * EncapsulatedContentInfo { id-ct-TSTInfo, [0] OCTET STRING TSTInfo }, ... } }.
      */
-    private function readTstInfo(string $token): string
+    private function readTstInfo(string $contentInfo): string
     {
-        [, $contentInfo] = Der::readTlvStrict($token);
-        [$tag, $contentType, $offset] = Der::readTlvStrict($contentInfo);
-        if ($tag !== 0x06 || $contentType !== substr(Der::objectIdentifier(self::OID_SIGNED_DATA), 2)) {
+        $elements = $this->children($contentInfo, 2, 2, 'timeStampToken');
+        if ($this->value($elements[0], 0x06, 'timeStampToken content type') !== $this->oidContents(self::OID_SIGNED_DATA)) {
             throw new \UnexpectedValueException('timeStampToken is not a CMS SignedData.');
         }
 
-        [$tag, $explicit] = Der::readTlvStrict($contentInfo, $offset);
-        $this->expectTag($tag, 0xA0, 'SignedData content');
-        [$tag, $signedData] = Der::readTlvStrict($explicit);
-        $this->expectTag($tag, 0x30, 'SignedData');
+        $explicit = $this->children($this->value($elements[1], 0xA0, 'SignedData content'), 1, 1, 'SignedData content');
+        // SignedData ::= SEQUENCE { version, digestAlgorithms, encapContentInfo, certificates [0] OPTIONAL,
+        // crls [1] OPTIONAL, signerInfos }
+        $signedData = $this->children($this->value($explicit[0], 0x30, 'SignedData'), 4, 6, 'SignedData');
 
-        [, , $offset] = Der::readTlvStrict($signedData);
-        [, , $offset] = Der::readTlvStrict($signedData, $offset);
-        [$tag, $encapContentInfo] = Der::readTlvStrict($signedData, $offset);
-        $this->expectTag($tag, 0x30, 'EncapsulatedContentInfo');
-
-        [$tag, $eContentType, $offset] = Der::readTlvStrict($encapContentInfo);
-        if ($tag !== 0x06 || $eContentType !== substr(Der::objectIdentifier(self::OID_TST_INFO), 2)) {
+        $encapContentInfo = $this->children($this->value($signedData[2], 0x30, 'EncapsulatedContentInfo'), 2, 2, 'EncapsulatedContentInfo');
+        if ($this->value($encapContentInfo[0], 0x06, 'eContentType') !== $this->oidContents(self::OID_TST_INFO)) {
             throw new \UnexpectedValueException('timeStampToken does not encapsulate a TSTInfo.');
         }
 
-        [$tag, $explicit] = Der::readTlvStrict($encapContentInfo, $offset);
-        $this->expectTag($tag, 0xA0, 'eContent');
-        [$tag, $tstInfo] = Der::readTlvStrict($explicit);
-        $this->expectTag($tag, 0x04, 'eContent');
+        $eContent = $this->children($this->value($encapContentInfo[1], 0xA0, 'eContent'), 1, 1, 'eContent');
 
-        return $tstInfo;
+        return $this->value($eContent[0], 0x04, 'eContent');
     }
 
     /**
@@ -376,25 +365,18 @@ final class OpenSslRfc3161TimestampTokenProvider implements TimestampTokenProvid
      */
     private function assertTstInfoMatchesRequest(string $tstInfoDer, string $hashOid, string $digest, string $nonce): void
     {
-        [$tag, $tstInfo] = Der::readTlvStrict($tstInfoDer);
-        $this->expectTag($tag, 0x30, 'TSTInfo');
+        $tstInfo = $this->children($this->exact($tstInfoDer, 0x30, 'TSTInfo'), 5, 10, 'TSTInfo');
 
-        [, , $offset] = Der::readTlvStrict($tstInfo);
-        [, , $offset] = Der::readTlvStrict($tstInfo, $offset);
-        [$tag, $messageImprint, $offset] = Der::readTlvStrict($tstInfo, $offset);
-        $this->expectTag($tag, 0x30, 'TSTInfo messageImprint');
-
-        [, $algorithm, $imprintOffset] = Der::readTlvStrict($messageImprint);
-        [, $hashedMessage] = Der::readTlvStrict($messageImprint, $imprintOffset);
-        [, $oid] = Der::readTlvStrict($algorithm);
+        // MessageImprint ::= SEQUENCE { hashAlgorithm AlgorithmIdentifier, hashedMessage OCTET STRING }
+        $messageImprint = $this->children($this->value($tstInfo[2], 0x30, 'TSTInfo messageImprint'), 2, 2, 'TSTInfo messageImprint');
+        $algorithm = $this->children($this->value($messageImprint[0], 0x30, 'TSTInfo hashAlgorithm'), 1, 2, 'TSTInfo hashAlgorithm');
+        $oid = $this->value($algorithm[0], 0x06, 'TSTInfo hashAlgorithm');
+        $hashedMessage = $this->value($messageImprint[1], 0x04, 'TSTInfo hashedMessage');
         if ($oid !== substr($hashOid, 2) || $hashedMessage !== $digest) {
             throw new SignProcessException('TSA response message imprint does not match the timestamp request.');
         }
 
-        [, , $offset] = Der::readTlvStrict($tstInfo, $offset);
-        [, , $offset] = Der::readTlvStrict($tstInfo, $offset);
-        while ($offset < strlen($tstInfo)) {
-            [$tag, $value, $offset] = Der::readTlvStrict($tstInfo, $offset);
+        foreach (array_slice($tstInfo, 5) as [$tag, $value]) {
             if ($tag === 0x02) {
                 if ($value !== $nonce) {
                     throw new SignProcessException('TSA response nonce does not match the timestamp request.');
@@ -407,10 +389,43 @@ final class OpenSslRfc3161TimestampTokenProvider implements TimestampTokenProvid
         throw new SignProcessException('TSA response does not echo the timestamp request nonce.');
     }
 
-    private function expectTag(int $tag, int $expected, string $what): void
+    /**
+     * The value of the single element that must span all of $der.
+     */
+    private function exact(string $der, int $expectedTag, string $what): string
     {
-        if ($tag !== $expected) {
+        [$tag, $value] = StrictDerReader::readExact($der);
+
+        return $this->value([$tag, $value], $expectedTag, $what);
+    }
+
+    /**
+     * @return list<array{0:int,1:string,2:string}>
+     */
+    private function children(string $contents, int $min, int $max, string $what): array
+    {
+        $children = StrictDerReader::children($contents);
+        if (count($children) < $min || count($children) > $max) {
             throw new \UnexpectedValueException($what.' is malformed.');
         }
+
+        return $children;
+    }
+
+    /**
+     * @param  array{0:int,1:string,2?:string}  $element
+     */
+    private function value(array $element, int $expectedTag, string $what): string
+    {
+        if ($element[0] !== $expectedTag) {
+            throw new \UnexpectedValueException($what.' is malformed.');
+        }
+
+        return $element[1];
+    }
+
+    private function oidContents(string $oid): string
+    {
+        return substr(Der::objectIdentifier($oid), 2);
     }
 }
