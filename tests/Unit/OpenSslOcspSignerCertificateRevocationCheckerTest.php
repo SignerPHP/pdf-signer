@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspCertificate;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspRequest;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\OpenSslOcspSignerCertificateRevocationChecker;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\X509ExtensionUrlExtractor;
@@ -72,6 +73,30 @@ final class OpenSslOcspSignerCertificateRevocationCheckerTest extends TestCase
         $http = $this->responder(fn (string $request): string => self::$pki->respond($request, 'revoked', signer: 'responderWithoutEku'));
 
         $this->checker($http)->assertNotRevoked(self::$pki->pem('leaf'), [...$this->chain(), self::$pki->pem('responderWithoutEku')]);
+
+        self::assertCount(1, $http->requests);
+    }
+
+    public function test_revoked_response_identifying_the_responder_by_key_is_fatal(): void
+    {
+        $http = $this->responder(fn (string $request): string => self::$pki->respond($request, 'revoked', byKey: true));
+
+        $this->expectException(SignProcessException::class);
+        $this->checker($http)->assertNotRevoked(self::$pki->pem('leaf'), $this->chain());
+    }
+
+    public function test_revoked_response_whose_responder_id_names_another_certificate_is_ignored(): void
+    {
+        $caKey = sha1((string) OcspCertificate::fromPem(self::$pki->pem('ca'))?->publicKeyBits, true);
+        $responderKey = sha1((string) OcspCertificate::fromPem(self::$pki->pem('responder'))?->publicKeyBits, true);
+        // Signed by the issuer, but the ResponderID claims the delegated responder.
+        $http = $this->responder(fn (string $request): string => self::$pki->resign(
+            self::$pki->respond($request, 'revoked', byKey: true),
+            // Only the ResponderID byKey element; the CertID carries the same issuer key hash.
+            static fn (string $tbs): string => str_replace("\xA2\x16\x04\x14".$caKey, "\xA2\x16\x04\x14".$responderKey, $tbs),
+        ));
+
+        $this->checker($http)->assertNotRevoked(self::$pki->pem('leaf'), [...$this->chain(), self::$pki->pem('responder')]);
 
         self::assertCount(1, $http->requests);
     }

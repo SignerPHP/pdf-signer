@@ -104,6 +104,7 @@ final class OcspTestPki
         string $issuer = 'ca',
         ?int $days = 1,
         string $certificate = 'leaf',
+        bool $byKey = false,
     ): string {
         $serial = strtoupper(bin2hex($this->serialBytes($certificate)));
         $line = match ($status) {
@@ -118,7 +119,7 @@ final class OcspTestPki
         }
 
         $command = sprintf(
-            'openssl ocsp -index %s -CA %s -rsigner %s -rkey %s -reqin %s -respout %s%s 2>&1',
+            'openssl ocsp -index %s -CA %s -rsigner %s -rkey %s -reqin %s -respout %s%s%s 2>&1',
             escapeshellarg($this->path('index.txt')),
             escapeshellarg($this->path($issuer.'.pem')),
             escapeshellarg($this->path($signer.'.pem')),
@@ -126,6 +127,7 @@ final class OcspTestPki
             escapeshellarg($this->path('request.der')),
             escapeshellarg($this->path('response.der')),
             $days === null ? '' : ' -ndays '.$days,
+            $byKey ? ' -resp_key_id' : '',
         );
         exec($command, $output, $code);
         $response = @file_get_contents($this->path('response.der'));

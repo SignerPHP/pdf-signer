@@ -41,18 +41,17 @@ final readonly class OcspRequest
      */
     public static function forCertificate(string $certificateDer, string $issuerDer, ?string $nonceBytes = null): ?self
     {
-        try {
-            $certificate = self::tbsFields($certificateDer);
-            $issuer = self::tbsFields($issuerDer);
-        } catch (\UnexpectedValueException) {
+        $certificate = OcspCertificate::fromDer($certificateDer);
+        $issuer = OcspCertificate::fromDer($issuerDer);
+        if ($certificate === null || $issuer === null) {
             return null;
         }
 
         $certId = Der::sequence(
             Der::algorithmIdentifier('1.3.14.3.2.26')
-            .Der::octetString(sha1($issuer['subject'], true))
-            .Der::octetString(sha1($issuer['publicKey'], true))
-            .$certificate['serial']
+            .Der::octetString(sha1($issuer->subjectDer, true))
+            .Der::octetString(sha1($issuer->publicKeyBits, true))
+            .$certificate->serialNumberDer
         );
 
         $nonce = $nonceBytes === null ? null : Der::octetString($nonceBytes);
@@ -63,9 +62,9 @@ final readonly class OcspRequest
         return new self(
             der: Der::sequence(Der::sequence(Der::sequence(Der::sequence($certId)).$extensions)),
             nonce: $nonce,
-            issuerNameDer: $issuer['subject'],
-            issuerPublicKey: $issuer['publicKey'],
-            serialNumberDer: $certificate['serial'],
+            issuerNameDer: $issuer->subjectDer,
+            issuerPublicKey: $issuer->publicKeyBits,
+            serialNumberDer: $certificate->serialNumberDer,
         );
     }
 
@@ -103,35 +102,5 @@ final readonly class OcspRequest
         }
 
         return null;
-    }
-
-    /**
-     * @return array{serial: string, subject: string, publicKey: string} serial INTEGER and subject Name as DER, subjectPublicKey bits
-     */
-    private static function tbsFields(string $certificateDer): array
-    {
-        $certificate = Der::readTlvStrict($certificateDer);
-        $tbs = Der::readTlvStrict($certificate[1]);
-        if ($certificate[0] !== 0x30 || $tbs[0] !== 0x30) {
-            throw new \UnexpectedValueException('Not an X.509 certificate.');
-        }
-
-        $fields = [];
-        for ($offset = 0; $offset < strlen($tbs[1]);) {
-            $start = $offset;
-            [$tag, , $offset] = Der::readTlvStrict($tbs[1], $offset);
-            if ($tag !== 0xA0) {
-                $fields[] = substr($tbs[1], $start, $offset - $start);
-            }
-        }
-
-        // serialNumber, signature, issuer, validity, subject, subjectPublicKeyInfo
-        $spki = count($fields) >= 6 ? Der::readTlvStrict($fields[5]) : [0, ''];
-        [$keyTag, $keyBits] = $spki[1] === '' ? [0, ''] : Der::readTlvStrict($spki[1], Der::readTlvStrict($spki[1])[2]);
-        if ($keyTag !== 0x03 || $keyBits === '' || ord($fields[0][0]) !== 0x02 || ord($fields[4][0]) !== 0x30) {
-            throw new \UnexpectedValueException('Unsupported X.509 certificate.');
-        }
-
-        return ['serial' => $fields[0], 'subject' => $fields[4], 'publicKey' => substr($keyBits, 1)];
     }
 }

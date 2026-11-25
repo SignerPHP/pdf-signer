@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp;
 
-use SignerPHP\PdfSigner\Infrastructure\Native\Service\Cms\Der;
-
 /**
- * A successful id-pkix-ocsp-basic OCSPResponse (RFC 6960 section 4.2.1), parsed without the OpenSSL CLI.
+ * A successful id-pkix-ocsp-basic OCSPResponse (RFC 6960 section 4.2.1), parsed strictly
+ * without the OpenSSL CLI: DER only, every field in its place, no unknown or repeated
+ * elements, v1 only.
  *
- * Parsing does not imply trust: the signature over tbsResponseData and the responder's
- * authority are checked by the caller.
+ * Parsing does not imply trust: the signature over tbsResponseData, the responder's
+ * identity (ResponderID) and its authority are checked by the caller.
  */
 final readonly class OcspResponse
 {
@@ -31,7 +31,12 @@ final readonly class OcspResponse
         '1.2.840.10045.4.3.4' => 'sha512',
     ];
 
+    /** CRLReason values (RFC 5280 section 5.3.1); 7 is not used. */
+    private const REVOCATION_REASONS = [0, 1, 2, 3, 4, 5, 6, 8, 9, 10];
+
     /**
+     * @param  ?string  $responderName  ResponderID byName: the responder's subject Name as DER
+     * @param  ?string  $responderKeyHash  ResponderID byKey: SHA-1 of the responder's subjectPublicKey bits
      * @param  list<OcspSingleResponse>  $responses
      * @param  list<string>  $certificates  DER certificates the responder included
      * @param  ?string  $nonce  DER value of the nonce extension, when the responder returned one
@@ -41,6 +46,9 @@ final readonly class OcspResponse
         public ?string $signatureDigest,
         public string $signature,
         public array $certificates,
+        public ?string $responderName,
+        public ?string $responderKeyHash,
+        public int $producedAt,
         public array $responses,
         public ?string $nonce,
     ) {}
@@ -57,88 +65,149 @@ final readonly class OcspResponse
         }
     }
 
+    /**
+     * Whether $certificate is the responder the ResponderID names (RFC 6960 section 4.2.2.3).
+     */
+    public function identifies(OcspCertificate $certificate): bool
+    {
+        return $this->responderName !== null
+            ? hash_equals($this->responderName, $certificate->subjectDer)
+            : hash_equals((string) $this->responderKeyHash, sha1($certificate->publicKeyBits, true));
+    }
+
     private static function parseStrict(string $der): ?self
     {
-        $outer = self::children(self::expect($der, 0x30));
-        if (count($outer) !== 2 || $outer[0][0] !== 0x0A || $outer[0][1] !== "\x00" || $outer[1][0] !== 0xA0) {
-            return null; // responseStatus other than successful(0), or no responseBytes
+        // OCSPResponse ::= SEQUENCE { responseStatus ENUMERATED, responseBytes [0] EXPLICIT ResponseBytes OPTIONAL }
+        $outer = OcspDer::children($der);
+        if ($outer === [] || count($outer) > 2 || OcspDer::smallNumber($outer[0][2], 0x0A) !== 0) {
+            return null;
+        }
+        if (count($outer) !== 2) {
+            throw new \UnexpectedValueException('Successful OCSP response without responseBytes.');
         }
 
-        $responseBytes = self::children(self::expect($outer[1][1], 0x30));
-        if (count($responseBytes) !== 2 || self::oid($responseBytes[0]) !== self::BASIC_RESPONSE_OID || $responseBytes[1][0] !== 0x04) {
+        $responseBytes = OcspDer::children(OcspDer::expect($outer[1][2], 0xA0));
+        if (count($responseBytes) !== 2 || OcspDer::oid($responseBytes[0][2]) !== self::BASIC_RESPONSE_OID) {
             return null;
         }
 
-        $basic = self::children(self::expect($responseBytes[1][1], 0x30));
-        if (count($basic) < 3 || $basic[0][0] !== 0x30 || $basic[1][0] !== 0x30 || $basic[2][0] !== 0x03) {
-            return null;
+        // BasicOCSPResponse ::= SEQUENCE { tbsResponseData, signatureAlgorithm, signature BIT STRING, certs [0] EXPLICIT OPTIONAL }
+        $basic = OcspDer::children(OcspDer::expect($responseBytes[1][2], 0x04));
+        if (count($basic) < 3 || count($basic) > 4) {
+            throw new \UnexpectedValueException('Malformed BasicOCSPResponse.');
         }
 
         $certificates = [];
-        if (isset($basic[3]) && $basic[3][0] === 0xA0) {
-            foreach (self::children(self::expect($basic[3][1], 0x30)) as $certificate) {
+        if (isset($basic[3])) {
+            foreach (OcspDer::children(OcspDer::expect($basic[3][2], 0xA0)) as $certificate) {
+                if ($certificate[0] !== OcspDer::SEQUENCE) {
+                    throw new \UnexpectedValueException('Malformed certificate in BasicOCSPResponse.');
+                }
                 $certificates[] = $certificate[2];
             }
         }
 
-        [$responses, $nonce] = self::responseData($basic[0][1]);
+        $signature = OcspDer::expect($basic[2][2], 0x03);
+        if (strlen($signature) < 2 || $signature[0] !== "\x00") {
+            throw new \UnexpectedValueException('Malformed OCSP signature.');
+        }
+
+        $data = self::responseData($basic[0][2]);
 
         return new self(
             tbsResponseData: $basic[0][2],
-            signatureDigest: self::SIGNATURE_DIGESTS[self::oid(self::children($basic[1][1])[0] ?? [0, '', ''])] ?? null,
-            signature: substr($basic[2][1], 1),
+            signatureDigest: self::SIGNATURE_DIGESTS[self::algorithm($basic[1][2])] ?? null,
+            signature: substr($signature, 1),
             certificates: $certificates,
-            responses: $responses,
-            nonce: $nonce,
+            responderName: $data['responderName'],
+            responderKeyHash: $data['responderKeyHash'],
+            producedAt: $data['producedAt'],
+            responses: $data['responses'],
+            nonce: $data['nonce'],
         );
     }
 
     /**
-     * @return array{0: list<OcspSingleResponse>, 1: ?string}
+     * ResponseData ::= SEQUENCE { version [0] EXPLICIT DEFAULT v1, responderID, producedAt,
+     * responses SEQUENCE OF SingleResponse, responseExtensions [1] EXPLICIT OPTIONAL }
+     *
+     * @return array{responderName: ?string, responderKeyHash: ?string, producedAt: int, responses: list<OcspSingleResponse>, nonce: ?string}
      */
-    private static function responseData(string $tbs): array
+    private static function responseData(string $der): array
     {
-        $fields = self::children($tbs);
+        $fields = OcspDer::children($der);
         if (($fields[0][0] ?? null) === 0xA0) {
-            array_shift($fields); // version
+            if (OcspDer::smallNumber(OcspDer::expect($fields[0][2], 0xA0), 0x02) !== 0) {
+                throw new \UnexpectedValueException('Unsupported OCSP ResponseData version.');
+            }
+            array_shift($fields);
         }
-
-        // responderID, producedAt, responses, [1] responseExtensions
-        if (count($fields) < 3 || $fields[2][0] !== 0x30) {
+        if (count($fields) < 3 || count($fields) > 4) {
             throw new \UnexpectedValueException('Malformed OCSP ResponseData.');
         }
 
-        $responses = array_map(self::singleResponse(...), self::children($fields[2][1]));
-
-        $nonce = null;
-        if (isset($fields[3]) && $fields[3][0] === 0xA1) {
-            foreach (self::children(self::expect($fields[3][1], 0x30)) as $extension) {
-                $parts = self::children($extension[1]);
-                $value = end($parts);
-                if ($value !== false && self::oid($parts[0]) === self::NONCE_OID) {
-                    $nonce = self::expect($value[2], 0x04);
-                }
+        [$responderTag, $responderValue] = $fields[0];
+        $responderName = null;
+        $responderKeyHash = null;
+        if ($responderTag === 0xA1) {
+            $responderName = $responderValue;
+            OcspDer::children($responderName); // a Name is a SEQUENCE
+        } elseif ($responderTag === 0xA2) {
+            $responderKeyHash = OcspDer::expect($responderValue, 0x04);
+            if (strlen($responderKeyHash) !== 20) {
+                throw new \UnexpectedValueException('ResponderID byKey must be a SHA-1 hash.');
             }
+        } else {
+            throw new \UnexpectedValueException('Unknown ResponderID.');
         }
 
-        return [$responses, $nonce];
+        $responses = array_map(
+            static fn (array $single): OcspSingleResponse => self::singleResponse($single[2]),
+            OcspDer::children($fields[2][2]),
+        );
+        if ($responses === []) {
+            throw new \UnexpectedValueException('OCSP response without SingleResponse.');
+        }
+
+        $extensions = isset($fields[3]) ? OcspDer::extensions(OcspDer::expect($fields[3][2], 0xA1)) : [];
+
+        return [
+            'responderName' => $responderName,
+            'responderKeyHash' => $responderKeyHash,
+            'producedAt' => OcspDer::generalizedTime($fields[1][2]),
+            'responses' => $responses,
+            'nonce' => $extensions[self::NONCE_OID] ?? null,
+        ];
     }
 
     /**
-     * @param  array{0: int, 1: string, 2: string}  $node
+     * SingleResponse ::= SEQUENCE { certID, certStatus, thisUpdate, nextUpdate [0] EXPLICIT OPTIONAL,
+     * singleExtensions [1] EXPLICIT OPTIONAL }
      */
-    private static function singleResponse(array $node): OcspSingleResponse
+    private static function singleResponse(string $der): OcspSingleResponse
     {
-        $fields = self::children(self::expect($node[2], 0x30));
-        $certId = self::children(self::expect($fields[0][2] ?? '', 0x30));
-        if (count($fields) < 3 || count($certId) !== 4) {
+        $fields = OcspDer::children($der);
+        if (count($fields) < 3) {
             throw new \UnexpectedValueException('Malformed OCSP SingleResponse.');
         }
 
+        // CertID ::= SEQUENCE { hashAlgorithm, issuerNameHash OCTET STRING, issuerKeyHash OCTET STRING, serialNumber INTEGER }
+        $certId = OcspDer::children($fields[0][2]);
+        if (count($certId) !== 4) {
+            throw new \UnexpectedValueException('Malformed OCSP CertID.');
+        }
+
         $nextUpdate = null;
-        foreach (array_slice($fields, 3) as $optional) {
-            if ($optional[0] === 0xA0) {
-                $nextUpdate = self::generalizedTime(self::expect($optional[1], 0x18));
+        $optional = array_slice($fields, 3);
+        $tags = array_column($optional, 0);
+        if (! in_array($tags, [[], [0xA0], [0xA1], [0xA0, 0xA1]], true)) {
+            throw new \UnexpectedValueException('Unexpected element in OCSP SingleResponse.');
+        }
+        foreach ($optional as [$tag, , $element]) {
+            if ($tag === 0xA0) {
+                $nextUpdate = OcspDer::generalizedTime(OcspDer::expect($element, 0xA0));
+            } else {
+                OcspDer::extensions(OcspDer::expect($element, 0xA1));
             }
         }
 
@@ -152,20 +221,29 @@ final readonly class OcspResponse
             default => throw new \UnexpectedValueException('Unknown OCSP certStatus.'),
         };
         if ($status === OcspSingleResponse::REVOKED) {
-            $revoked = self::children($statusValue);
-            $revocationTime = self::generalizedTime(self::expect($revoked[0][2] ?? '', 0x18));
-            if (isset($revoked[1]) && $revoked[1][0] === 0xA0) {
-                $reason = ord(self::expect($revoked[1][1], 0x0A));
+            // RevokedInfo ::= SEQUENCE { revocationTime GeneralizedTime, revocationReason [0] EXPLICIT CRLReason OPTIONAL }
+            $revoked = OcspDer::children($fields[1][2], 0xA1);
+            if ($revoked === [] || count($revoked) > 2) {
+                throw new \UnexpectedValueException('Malformed OCSP RevokedInfo.');
             }
+            $revocationTime = OcspDer::generalizedTime($revoked[0][2]);
+            if (isset($revoked[1])) {
+                $reason = OcspDer::smallNumber(OcspDer::expect($revoked[1][2], 0xA0), 0x0A);
+                if (! in_array($reason, self::REVOCATION_REASONS, true)) {
+                    throw new \UnexpectedValueException('Unknown CRLReason.');
+                }
+            }
+        } elseif ($statusValue !== '') {
+            throw new \UnexpectedValueException('OCSP good/unknown status must be NULL.');
         }
 
         return new OcspSingleResponse(
-            hashAlgorithmOid: self::oid(self::children(self::expect($certId[0][2], 0x30))[0] ?? [0, '', '']),
-            issuerNameHash: self::expect($certId[1][2], 0x04),
-            issuerKeyHash: self::expect($certId[2][2], 0x04),
-            serialNumberDer: $certId[3][2],
+            hashAlgorithmOid: self::algorithm($certId[0][2]),
+            issuerNameHash: OcspDer::expect($certId[1][2], 0x04),
+            issuerKeyHash: OcspDer::expect($certId[2][2], 0x04),
+            serialNumberDer: OcspDer::integer($certId[3][2]),
             status: $status,
-            thisUpdate: self::generalizedTime(self::expect($fields[2][2], 0x18)),
+            thisUpdate: OcspDer::generalizedTime($fields[2][2]),
             nextUpdate: $nextUpdate,
             revocationTime: $revocationTime,
             revocationReason: $reason,
@@ -173,66 +251,15 @@ final readonly class OcspResponse
     }
 
     /**
-     * @return list<array{0: int, 1: string, 2: string}> tag, value and full TLV of each element
+     * AlgorithmIdentifier ::= SEQUENCE { algorithm OBJECT IDENTIFIER, parameters ANY OPTIONAL }
      */
-    private static function children(string $contents): array
+    private static function algorithm(string $der): string
     {
-        $children = [];
-        for ($offset = 0; $offset < strlen($contents);) {
-            $start = $offset;
-            [$tag, $value, $offset] = Der::readTlvStrict($contents, $offset);
-            $children[] = [$tag, $value, substr($contents, $start, $offset - $start)];
+        $parts = OcspDer::children($der);
+        if ($parts === [] || count($parts) > 2) {
+            throw new \UnexpectedValueException('Malformed AlgorithmIdentifier.');
         }
 
-        return $children;
-    }
-
-    /**
-     * The value of $der, which must be exactly one TLV with the given tag.
-     */
-    private static function expect(string $der, int $tag): string
-    {
-        [$actual, $value, $end] = Der::readTlvStrict($der);
-        if ($actual !== $tag || $end !== strlen($der)) {
-            throw new \UnexpectedValueException('Unexpected DER element.');
-        }
-
-        return $value;
-    }
-
-    /**
-     * @param  array{0: int, 1: string, 2: string}  $node
-     */
-    private static function oid(array $node): string
-    {
-        if ($node[0] !== 0x06 || $node[1] === '') {
-            return '';
-        }
-
-        $arcs = [];
-        $value = 0;
-        foreach (str_split($node[1]) as $byte) {
-            $value = ($value << 7) | (ord($byte) & 0x7F);
-            if ((ord($byte) & 0x80) === 0) {
-                $arcs[] = $value;
-                $value = 0;
-            }
-        }
-
-        $first = min(intdiv($arcs[0], 40), 2);
-
-        return implode('.', [$first, $arcs[0] - 40 * $first, ...array_slice($arcs, 1)]);
-    }
-
-    private static function generalizedTime(string $value): int
-    {
-        $time = preg_match('/^(\d{14})(?:\.\d+)?Z$/', $value, $matches) === 1
-            ? \DateTimeImmutable::createFromFormat('!YmdHis', $matches[1], new \DateTimeZone('UTC'))
-            : false;
-        if ($time === false) {
-            throw new \UnexpectedValueException('Invalid GeneralizedTime.');
-        }
-
-        return $time->getTimestamp();
+        return OcspDer::oid($parts[0][2]);
     }
 }

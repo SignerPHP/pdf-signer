@@ -8,6 +8,7 @@ use SignerPHP\PdfSigner\Domain\Exception\SignProcessException;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\HttpClientInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\ProcessRunnerInterface;
 use SignerPHP\PdfSigner\Infrastructure\Native\Contract\SignerCertificateRevocationCheckerInterface;
+use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspCertificate;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspRequest;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspResponse;
 use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspSingleResponse;
@@ -18,10 +19,10 @@ use SignerPHP\PdfSigner\Infrastructure\Native\Service\Ocsp\OcspSingleResponse;
  *
  * A response is only taken into account when it is verified: its signature must come from the
  * issuer of the signing certificate or from a delegated responder issued by it (carrying
- * id-kp-OCSPSigning, within its validity), the issuer must chain to a self-signed root from the
- * signer's own certificate chain, it must answer the nonce when the responder supports nonces,
- * and it must be current (thisUpdate/nextUpdate with 5 minutes of clock skew; without
- * nextUpdate, at most one day old). A verified "revoked" from any responder is fatal.
+ * id-kp-OCSPSigning, within its validity) and be the one its ResponderID names, the issuer must
+ * chain to a self-signed root from the signer's own certificate chain, it must answer the nonce
+ * when the responder supports nonces, and it must be current (thisUpdate/nextUpdate with 5
+ * minutes of clock skew; without nextUpdate, at most one day old). A verified "revoked" from any responder is fatal.
  * Unverifiable, stale or missing answers keep the previous behaviour, so offline and
  * OCSP-less certificates are not blocked.
  *
@@ -111,7 +112,8 @@ final readonly class OpenSslOcspSignerCertificateRevocationChecker implements Si
 
     /**
      * The response must be signed by the certificate issuer itself or by a responder the issuer
-     * delegated with id-kp-OCSPSigning (RFC 6960 section 4.2.2.2).
+     * delegated with id-kp-OCSPSigning (RFC 6960 section 4.2.2.2), and that signer must be the
+     * one its ResponderID names (section 4.2.2.3).
      *
      * @param  list<string>  $chainPem
      */
@@ -123,7 +125,8 @@ final readonly class OpenSslOcspSignerCertificateRevocationChecker implements Si
 
         $candidates = [$issuerPem, ...array_map($this->derToPem(...), $response->certificates), ...$chainPem];
         foreach ($candidates as $candidatePem) {
-            $publicKey = @openssl_pkey_get_public($candidatePem);
+            $candidate = OcspCertificate::fromPem($candidatePem);
+            $publicKey = $candidate !== null && $response->identifies($candidate) ? @openssl_pkey_get_public($candidatePem) : false;
             if ($publicKey === false
                 || openssl_verify($response->tbsResponseData, $response->signature, $publicKey, $response->signatureDigest) !== 1) {
                 continue;
